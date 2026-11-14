@@ -545,7 +545,14 @@ menuNavLayout.Parent = menuNavBtnsContainer
 local menuPages: { [string]: Frame } = {}
 local menuTabButtons: { [string]: TextButton } = {}
 
+-- Forward declaration for `refreshUI` and `launchIntoHub`
+local refreshUI: () -> ()
+local launchIntoHub: () -> ()
+local planetNameInput: TextBox
+local activeMenuTab = "Play"
+
 local function switchMainMenuTab(tabName: string)
+	activeMenuTab = tabName
 	for k, frame in pairs(menuPages) do
 		frame.Visible = (k == tabName)
 	end
@@ -575,7 +582,11 @@ for _, tabDef in ipairs({
 	addTextStroke(b, 1.5)
 	b.MouseButton1Click:Connect(function()
 		playSFX(sfxClick, 0.28, 0.08)
-		switchMainMenuTab(tabDef.Id)
+		if tabDef.Id == "Play" and activeMenuTab == "Play" and launchIntoHub then
+			launchIntoHub()
+		else
+			switchMainMenuTab(tabDef.Id)
+		end
 	end)
 	menuTabButtons[tabDef.Id] = b
 end
@@ -698,11 +709,7 @@ settingsMenuPage.Visible = false
 settingsMenuPage.Parent = genesisContainer
 menuPages["Settings"] = settingsMenuPage
 
--- Forward declaration for `refreshUI` and `launchIntoHub`
-local refreshUI: () -> ()
-local planetNameInput: TextBox
-
-local function launchIntoHub()
+launchIntoHub = function()
 	playSFX(sfxLaunch, 0.35)
 	if planetNameInput and #planetNameInput.Text > 0 then
 		currentState.Look.PlanetName = planetNameInput.Text
@@ -710,6 +717,7 @@ local function launchIntoHub()
 	currentState.HasCompletedSetup = true
 	localPlanetPos = HUB_SPAWN_POS
 	localVelocity = Vector3.zero
+	genesisContainer.Visible = false
 	FinalizeSetupEvent:FireServer(currentState.Look.PlanetName)
 	refreshShowroomAndActivePlanetModels()
 	if refreshUI then
@@ -2286,7 +2294,7 @@ do
 		sDesc.Size = UDim2.new(1, -225, 0, 22)
 		sDesc.Position = UDim2.new(0, 14, 0, 30)
 		sDesc.BackgroundTransparency = 1
-		sDesc.Text = st.Description
+		sDesc.Text = st.PassiveBuffDesc or st.Description or ""
 		sDesc.TextColor3 = Color3.fromRGB(215, 226, 245)
 		sDesc.Font = Enum.Font.GothamMedium
 		sDesc.TextSize = 11
@@ -2337,7 +2345,7 @@ do
 			local isUnlocked = (st.GemCost == 0) or (currentState.UnlockedStations and currentState.UnlockedStations[st.Id] == true)
 			if isUnlocked then
 				playSFX(sfxLaunch, 0.35)
-				localPlanetPos = st.Position + Vector3.new(0, 18, 85)
+				localPlanetPos = (st.Id == "Hub") and HUB_SPAWN_POS or (st.Position + Vector3.new(0, 18, 85))
 				localVelocity = Vector3.zero
 				WarpToSectorEvent:FireServer(st.Id)
 				modalFrame.Visible = false
@@ -2374,7 +2382,7 @@ do
 	ascensionInfoLabel.Size = UDim2.new(1, -28, 0, 44)
 	ascensionInfoLabel.Position = UDim2.new(0, 14, 0, 36)
 	ascensionInfoLabel.BackgroundTransparency = 1
-	ascensionInfoLabel.Text = "Current Ascensions: 0 (1x Permanent Bonus)  •  Requires 250K Planet Value"
+	ascensionInfoLabel.Text = "Current Ascensions: 0 (1x Permanent Bonus)  •  Requires 32K Planet Value"
 	ascensionInfoLabel.TextColor3 = Color3.fromRGB(225, 235, 255)
 	ascensionInfoLabel.Font = Enum.Font.GothamBold
 	ascensionInfoLabel.TextSize = 12
@@ -2512,7 +2520,7 @@ do
 		pTitle.Size = UDim2.new(1, -16, 0, 26)
 		pTitle.Position = UDim2.new(0, 8, 0, 8)
 		pTitle.BackgroundTransparency = 1
-		pTitle.Text = pod.Icon .. " " .. pod.Name
+		pTitle.Text = pod.Name
 		pTitle.TextColor3 = pod.Color
 		pTitle.Font = Enum.Font.FredokaOne
 		pTitle.TextSize = 15
@@ -2589,7 +2597,7 @@ do
 	droneSummaryLabel.Size = UDim2.new(1, -360, 1, 0)
 	droneSummaryLabel.Position = UDim2.new(0, 14, 0, 0)
 	droneSummaryLabel.BackgroundTransparency = 1
-	droneSummaryLabel.Text = "🛸 Equipped Drones: 0 / 3  •  Total Bonus: 1.00x Yield, +0 🔨 Drill"
+	droneSummaryLabel.Text = "🛸 Equipped Drones: 0 / 3  •  Total Bonus: 1.00x Yield"
 	droneSummaryLabel.TextColor3 = Color3.fromRGB(115, 240, 185)
 	droneSummaryLabel.Font = Enum.Font.FredokaOne
 	droneSummaryLabel.TextSize = 13
@@ -2690,7 +2698,7 @@ do
 		gt.Size = UDim2.new(1, -110, 0, 22)
 		gt.Position = UDim2.new(0, 10, 0, 6)
 		gt.BackgroundTransparency = 1
-		gt.Text = "🎁 " .. gDef.Title
+		gt.Text = "🎁 " .. (gDef.Label or gDef.Title or "Gift")
 		gt.TextColor3 = Color3.fromRGB(255, 235, 110)
 		gt.Font = Enum.Font.FredokaOne
 		gt.TextSize = 13
@@ -2702,7 +2710,7 @@ do
 		gr.Size = UDim2.new(1, -110, 0, 36)
 		gr.Position = UDim2.new(0, 10, 0, 28)
 		gr.BackgroundTransparency = 1
-		gr.Text = formatCost(gDef.Reward)
+		gr.Text = gDef.RewardText or "Free Session Gift"
 		gr.TextColor3 = Color3.fromRGB(125, 245, 185)
 		gr.Font = Enum.Font.GothamBold
 		gr.TextSize = 10
@@ -3232,11 +3240,12 @@ local activeDroneModels: { { Model: Model, Phase: number } } = {}
 local lastDroneSignature = ""
 
 local function rebuildOrbitingDrones()
-	local owned = currentState.OwnedCompanions or {}
+	local owned = currentState.Companions or currentState.OwnedCompanions or {}
 	local sigParts = {}
 	for _, entry in ipairs(owned) do
 		if entry.Equipped then
-			table.insert(sigParts, tostring(entry.Uid) .. ":" .. tostring(entry.Id) .. ":" .. tostring(entry.Golden))
+			local isGold = (entry.IsGolden == true) or (entry.Golden == true)
+			table.insert(sigParts, tostring(entry.Uid) .. ":" .. tostring(entry.Id) .. ":" .. tostring(isGold))
 		end
 	end
 	local sig = table.concat(sigParts, "|")
@@ -3260,7 +3269,8 @@ local function rebuildOrbitingDrones()
 	for _, entry in ipairs(owned) do
 		if entry.Equipped then
 			idx += 1
-			local dm = PlanetGenerator.BuildCompanionDroneModel(entry.Id, entry.Golden == true)
+			local isGold = (entry.IsGolden == true) or (entry.Golden == true)
+			local dm = PlanetGenerator.BuildCompanionDroneModel(entry.Id, isGold)
 			dm.Parent = Workspace
 			table.insert(activeDroneModels, {
 				Model = dm,
@@ -3296,7 +3306,7 @@ local function getMissionProgressLocal(goalType: string): number
 			end
 		end
 		return c
-	elseif goalType == "UnlockedStations" then
+	elseif goalType == "StationsUnlocked" or goalType == "UnlockedStations" then
 		local c = 0
 		for _, v in pairs(currentState.UnlockedStations or {}) do
 			if v then
@@ -3304,8 +3314,10 @@ local function getMissionProgressLocal(goalType: string): number
 			end
 		end
 		return math.max(0, c - 1)
-	elseif goalType == "CompanionsHatched" then
-		return #(currentState.OwnedCompanions or {})
+	elseif goalType == "DronesHatched" or goalType == "CompanionsHatched" then
+		return currentState.DronesHatched or #(currentState.Companions or {})
+	elseif goalType == "DrillLevel" then
+		return (currentState.Rates and currentState.Rates.DrillPower) or 0
 	elseif goalType == "PlanetValue" then
 		return currentState.PlanetValueScore or 0
 	end
@@ -3384,7 +3396,7 @@ refreshUI = function()
 
 	local res = currentState.Resources
 	local rates = currentState.Rates
-	local drillPower = rates.DrillPower or 1
+	local drillPower = rates.DrillPower or 0
 
 	statCards.Gems.ValueLabel.Text = PlanetConfig.FormatNumber(currentState.Gems or 0)
 	statCards.Gems.RateLabel.Text = "💎 Star Gems"
@@ -3413,13 +3425,14 @@ refreshUI = function()
 	statCards.PlanetValue.RateLabel.Text = evo.Name
 
 	-- Update Booster & Next Space Station Tracker Bar
+	local ownedDrones = currentState.Companions or {}
 	local eqCount = 0
-	for _, entry in ipairs(currentState.OwnedCompanions or {}) do
+	for _, entry in ipairs(ownedDrones) do
 		if entry.Equipped then
 			eqCount += 1
 		end
 	end
-	local maxSlots = rates.MaxEquippedDrones or 3
+	local maxSlots = currentState.MaxEquippedDrones or rates.MaxEquippedDrones or 3
 	local activeBoostTags = {}
 	for _, bDef in ipairs(PlanetConfig.Boosters) do
 		local rem = (currentState.ActiveBoosters and currentState.ActiveBoosters[bDef.Id]) or 0
@@ -3579,7 +3592,7 @@ refreshUI = function()
 		end
 	end
 
-	local reqAscVal = math.floor(250000 * math.pow(5.5, ascCount))
+	local reqAscVal = math.floor(32000 * math.pow(4.2, ascCount))
 	ascensionInfoLabel.Text = string.format(
 		"Current Ascensions: %d (%sx Permanent All-Yield Multiplier) • 🪐 Cosmic Shards: %s\nNext Ascension Requires: %s Planet Value Score (Keep Gems, Stations & Drones!)",
 		ascCount,
@@ -3610,8 +3623,8 @@ refreshUI = function()
 			"🛸 Equipped Drones: %d / %d  •  Total Drone Bonus: %sx All Yields  •  Owned: %d",
 			eqCount,
 			maxSlots,
-			PlanetConfig.FormatNumber(rates.DroneAllYieldMult or 1),
-			#(currentState.OwnedCompanions or {})
+			PlanetConfig.FormatNumber(rates.CompanionMult or 1),
+			#ownedDrones
 		)
 	end
 	if droneInventoryGridFrame then
@@ -3620,22 +3633,23 @@ refreshUI = function()
 				ch:Destroy()
 			end
 		end
-		for _, entry in ipairs(currentState.OwnedCompanions or {}) do
+		for _, entry in ipairs(ownedDrones) do
 			local cDef = PlanetConfig.Companions[entry.Id]
 			if cDef then
-				local gMult = entry.Golden and 1.85 or 1.0
+				local isGold = (entry.IsGolden == true) or (entry.Golden == true)
+				local gMult = isGold and 1.85 or 1.0
 				local dCard = Instance.new("Frame")
 				dCard.BackgroundColor3 = entry.Equipped and Color3.fromRGB(28, 52, 68) or Color3.fromRGB(22, 30, 56)
 				dCard.Parent = droneInventoryGridFrame
 				addCorner(dCard, 12)
-				addBorderStroke(dCard, entry.Golden and Color3.fromRGB(255, 215, 55) or cDef.Color, entry.Equipped and 2.6 or 1.6)
+				addBorderStroke(dCard, isGold and Color3.fromRGB(255, 215, 55) or cDef.Color, entry.Equipped and 2.6 or 1.6)
 
 				local dName = Instance.new("TextLabel")
 				dName.Size = UDim2.new(1, -12, 0, 22)
 				dName.Position = UDim2.new(0, 6, 0, 4)
 				dName.BackgroundTransparency = 1
-				dName.Text = (entry.Golden and "✨ GOLDEN " or "🛸 ") .. cDef.Name
-				dName.TextColor3 = entry.Golden and Color3.fromRGB(255, 225, 75) or cDef.Color
+				dName.Text = (isGold and "✨ GOLDEN " or "🛸 ") .. cDef.Name
+				dName.TextColor3 = isGold and Color3.fromRGB(255, 225, 75) or cDef.Color
 				dName.Font = Enum.Font.FredokaOne
 				dName.TextSize = 12
 				dName.TextWrapped = true
@@ -3657,10 +3671,10 @@ refreshUI = function()
 				dStats.Position = UDim2.new(0, 6, 0, 42)
 				dStats.BackgroundTransparency = 1
 				dStats.Text = string.format(
-					"%.2fx Yield • +%d 🔨 Drill • %.2fx 💎",
-					1 + (cDef.AllYieldMult - 1) * gMult,
-					math.floor(cDef.DrillBonus * gMult + 0.5),
-					1 + (cDef.GemMult - 1) * gMult
+					"%.2fx Yield • %.2fx 💎 • +%d Spd",
+					cDef.YieldMult * gMult,
+					cDef.GemMult * gMult,
+					math.floor(cDef.SpeedBonus * gMult + 0.5)
 				)
 				dStats.TextColor3 = Color3.fromRGB(115, 245, 180)
 				dStats.Font = Enum.Font.FredokaOne
@@ -3695,15 +3709,16 @@ refreshUI = function()
 	for _, gDef in ipairs(PlanetConfig.PlaytimeRewards) do
 		local ui = giftButtonsUI[gDef.Id]
 		if ui then
-			local claimed = currentState.ClaimedGifts and currentState.ClaimedGifts[tostring(gDef.Id)] == true
+			local claimed = currentState.ClaimedPlaytimeGifts
+				and (currentState.ClaimedPlaytimeGifts[gDef.Id] == true or currentState.ClaimedPlaytimeGifts[tostring(gDef.Id)] == true)
 			if claimed then
 				ui.Btn.Text = "✓ CLAIMED"
 				ui.Btn.BackgroundColor3 = Color3.fromRGB(55, 70, 95)
-			elseif pSec >= gDef.Seconds then
+			elseif pSec >= gDef.TimeReq then
 				ui.Btn.Text = "🎁 CLAIM!"
 				ui.Btn.BackgroundColor3 = Color3.fromRGB(45, 215, 115)
 			else
-				ui.Btn.Text = formatSecondsMMSS(gDef.Seconds - pSec)
+				ui.Btn.Text = formatSecondsMMSS(gDef.TimeReq - pSec)
 				ui.Btn.BackgroundColor3 = Color3.fromRGB(55, 135, 215)
 			end
 		end
@@ -3979,7 +3994,7 @@ RunService.RenderStepped:Connect(function(dt: number)
 
 	-- Orbit Equipped 3D Companion Drones Smoothly Around the Player's Planet!
 	droneOrbitClock += dt * 1.85
-	local pScale = (currentState.Rates and currentState.Rates.PlanetScale) or 1.0
+	local pScale = getLocalPlanetScaleFactor()
 	local orbitRad = 24 * pScale + 8
 	for i, dInfo in ipairs(activeDroneModels) do
 		if dInfo.Model and dInfo.Model.Parent then
@@ -4015,7 +4030,7 @@ RunService.RenderStepped:Connect(function(dt: number)
 	local foundStation: any = nil
 	local foundStationDist = math.huge
 	for _, st in ipairs(PlanetConfig.SpaceStations) do
-		if st.Id ~= "Station_Hub" then
+		if st.Id ~= "Hub" then
 			local d = (localPlanetPos - st.Position).Magnitude
 			if d <= (st.DockRadius + 55) and d < foundStationDist then
 				foundStationDist = d

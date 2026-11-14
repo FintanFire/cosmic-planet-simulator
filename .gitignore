@@ -1,9 +1,8 @@
-# Roblox Studio binary / lock files (use Rojo + Git instead)
-*.rbxl
-*.rbxlx
+# Roblox Studio lock files
 *.rbxl.lock
-*.rbxm
-*.rbxmx
+*.rbxlx.lock
+LegoPlanetSimulator.rbxl
+PlanetCivGame.rbxl
 
 # OS & Editor files
 .DS_Store
