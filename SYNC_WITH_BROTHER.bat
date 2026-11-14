@@ -8,7 +8,13 @@ echo.
 echo [1/4] Pulling latest updates from GitHub...
 git pull --rebase origin main
 echo.
-echo [2/4] Rebuilding CosmicPlanetSimulator.rbxl with Rojo...
+echo [2/4] Rebuilding CosmicPlanetSimulator.rbxl with Rojo ^& staging custom UI icons...
+for /d %%D in ("%LOCALAPPDATA%\Roblox\Versions\*") do (
+    if exist "%%D\RobloxStudioBeta.exe" (
+        if not exist "%%D\content\cosmic_ui" mkdir "%%D\content\cosmic_ui"
+        copy /Y "assets\ui\*.png" "%%D\content\cosmic_ui\" >nul 2>&1
+    )
+)
 if exist "%USERPROFILE%\.rojo\rojo.exe" (
     "%USERPROFILE%\.rojo\rojo.exe" build "default.project.json" -o "CosmicPlanetSimulator.rbxl"
 ) else (

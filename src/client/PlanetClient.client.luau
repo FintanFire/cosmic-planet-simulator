@@ -568,6 +568,11 @@ local refreshUI: () -> ()
 local launchIntoHub: () -> ()
 local planetNameInput: TextBox
 local activeMenuTab = "Play"
+local isCustomizingOverlayOpen = false
+
+local function is2DMenuActive(): boolean
+	return (not currentState.HasCompletedSetup) or isCustomizingOverlayOpen
+end
 
 local function switchMainMenuTab(tabName: string)
 	activeMenuTab = tabName
@@ -600,7 +605,7 @@ for _, tabDef in ipairs({
 	addTextStroke(b, 1.5)
 	b.MouseButton1Click:Connect(function()
 		playSFX(sfxClick, 0.28, 0.08)
-		if tabDef.Id == "Play" and activeMenuTab == "Play" and launchIntoHub then
+		if tabDef.Id == "Play" and (activeMenuTab == "Play" or isCustomizingOverlayOpen) and launchIntoHub then
 			launchIntoHub()
 		else
 			switchMainMenuTab(tabDef.Id)
@@ -675,17 +680,19 @@ local function refreshShowroomAndActivePlanetModels()
 	hideServerDuplicateOfMyPlanet(true)
 	local sig = computePlanetSignature()
 
-	if not currentState.HasCompletedSetup then
+	if is2DMenuActive() then
 		if sig ~= lastBuilt2DMenuSignature or not vpPlanetModel then
 			lastBuilt2DMenuSignature = sig
 			rebuild2DMenuPreviewModels()
 		end
-		if localActivePlanetModel then
+		if not currentState.HasCompletedSetup and localActivePlanetModel then
 			localActivePlanetModel:Destroy()
 			localActivePlanetModel = nil
 			lastBuiltPlanetSignature = ""
 		end
-	else
+	end
+
+	if currentState.HasCompletedSetup and not isCustomizingOverlayOpen then
 		if not localActivePlanetModel or not localActivePlanetModel.Parent or sig ~= lastBuiltPlanetSignature then
 			lastBuiltPlanetSignature = sig
 			if localActivePlanetModel then
@@ -735,9 +742,13 @@ launchIntoHub = function()
 	if planetNameInput and #planetNameInput.Text > 0 then
 		currentState.Look.PlanetName = planetNameInput.Text
 	end
+	local wasFirstSetup = not currentState.HasCompletedSetup
+	isCustomizingOverlayOpen = false
 	currentState.HasCompletedSetup = true
-	localPlanetPos = HUB_SPAWN_POS
-	localVelocity = Vector3.zero
+	if wasFirstSetup then
+		localPlanetPos = HUB_SPAWN_POS
+		localVelocity = Vector3.zero
+	end
 	genesisContainer.Visible = false
 	FinalizeSetupEvent:FireServer(currentState.Look.PlanetName)
 	refreshShowroomAndActivePlanetModels()
@@ -1726,7 +1737,7 @@ attachBounceAndSFX(launchBtn)
 launchBtn.MouseButton1Click:Connect(launchIntoHub)
 
 -- ============================================================================
--- 6. IN-GAME SIMULATOR HUD (AAA SCI-FI GLASSMORPHIC COMMAND INTERFACE)
+-- 6. IN-GAME SIMULATOR HUD (TOP-CHART ROBLOX SIMULATOR BEVELED UI)
 -- ============================================================================
 local inGameHUD = Instance.new("Frame")
 inGameHUD.Name = "SimulatorInGameHUD"
@@ -1735,189 +1746,313 @@ inGameHUD.BackgroundTransparency = 1
 inGameHUD.Visible = true
 inGameHUD.Parent = screenGui
 
--- A. TOP-CENTER COLLAPSIBLE TELEMETRY PILL & HOVER/CLICK DRAWER
+-- Helper for custom generated UI icons in `rbxasset://cosmic_ui/`
+local CUSTOM_UI_ICONS = {
+	Drones = "rbxasset://cosmic_ui/icon_drones.png",
+	Shop = "rbxasset://cosmic_ui/icon_shop.png",
+	Quests = "rbxasset://cosmic_ui/icon_quests.png",
+	Stations = "rbxasset://cosmic_ui/icon_stations.png",
+	Evolve = "rbxasset://cosmic_ui/icon_evolve.png",
+	Customize = "rbxasset://cosmic_ui/icon_customize.png",
+}
+
+-- Forward declaration for modal tab opener used by top-left [+] buttons
+local toggleTab: (tabKey: string, titleText: string) -> ()
+local openMachineModal: (machineId: string?) -> ()
+
+-- A. TOP-CENTER SLANTED STATUS BANNER + ORANGE-RED SUB-BANNER (Hover/Click expands Telemetry & Quests)
 local topInfoPinned = false
 local topBarHovered = false
 local topDrawerHovered = false
 
 local topCompactBtn = Instance.new("TextButton")
-topCompactBtn.Name = "TopTelemetryTogglePill"
-topCompactBtn.Size = UDim2.new(0, 320, 0, 30)
+topCompactBtn.Name = "TopStatusBanner"
+topCompactBtn.Size = UDim2.new(0, 316, 0, 44)
 topCompactBtn.AnchorPoint = Vector2.new(0.5, 0)
 topCompactBtn.Position = UDim2.new(0.5, 0, 0, 10)
-topCompactBtn.BackgroundColor3 = Color3.fromRGB(9, 13, 24)
-topCompactBtn.BackgroundTransparency = 0.14
+topCompactBtn.BackgroundColor3 = Color3.fromRGB(20, 27, 45)
 topCompactBtn.AutoButtonColor = false
 topCompactBtn.Text = ""
 topCompactBtn.Parent = inGameHUD
-addCorner(topCompactBtn, 8)
-local topCompactStroke = addBorderStroke(topCompactBtn, Color3.fromRGB(70, 150, 235), 1.2)
+addCorner(topCompactBtn, 10)
+local topCompactStroke = addBorderStroke(topCompactBtn, Color3.fromRGB(8, 12, 22), 3.0)
 
-local topCompactAccent = Instance.new("Frame")
-topCompactAccent.Size = UDim2.new(0, 3, 1, -10)
-topCompactAccent.Position = UDim2.new(0, 5, 0, 5)
-topCompactAccent.BackgroundColor3 = Color3.fromRGB(75, 205, 255)
-topCompactAccent.BorderSizePixel = 0
-topCompactAccent.Parent = topCompactBtn
-addCorner(topCompactAccent, 2)
+-- Decorative racing stripes on the right of the top banner (matching reference screenshot)
+local stripe1 = Instance.new("Frame")
+stripe1.Size = UDim2.new(0, 14, 1, 0)
+stripe1.Position = UDim2.new(1, -54, 0, 0)
+stripe1.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+stripe1.BackgroundTransparency = 0.78
+stripe1.BorderSizePixel = 0
+stripe1.Parent = topCompactBtn
+
+local stripe2 = Instance.new("Frame")
+stripe2.Size = UDim2.new(0, 8, 1, 0)
+stripe2.Position = UDim2.new(1, -34, 0, 0)
+stripe2.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+stripe2.BackgroundTransparency = 0.84
+stripe2.BorderSizePixel = 0
+stripe2.Parent = topCompactBtn
+
+local topBannerIcon = Instance.new("TextLabel")
+topBannerIcon.Size = UDim2.new(0, 32, 0, 32)
+topBannerIcon.Position = UDim2.new(0, 10, 0.5, -16)
+topBannerIcon.BackgroundTransparency = 1
+topBannerIcon.Text = "🪐"
+topBannerIcon.TextSize = 20
+topBannerIcon.Font = Enum.Font.GothamBlack
+topBannerIcon.Parent = topCompactBtn
 
 local topCompactSummaryLbl = Instance.new("TextLabel")
-topCompactSummaryLbl.Size = UDim2.new(1, -104, 1, 0)
-topCompactSummaryLbl.Position = UDim2.new(0, 14, 0, 0)
+topCompactSummaryLbl.Size = UDim2.new(1, -84, 0, 22)
+topCompactSummaryLbl.Position = UDim2.new(0, 42, 0, 3)
 topCompactSummaryLbl.BackgroundTransparency = 1
-topCompactSummaryLbl.Text = "RANK 1  •  ZONE 1  •  DRILL 1"
-topCompactSummaryLbl.TextColor3 = Color3.fromRGB(235, 244, 255)
+topCompactSummaryLbl.Text = "NOW: Sanctuary Orbit"
+topCompactSummaryLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
 topCompactSummaryLbl.Font = Enum.Font.GothamBlack
-topCompactSummaryLbl.TextSize = 11
-topCompactSummaryLbl.TextXAlignment = Enum.TextXAlignment.Left
+topCompactSummaryLbl.TextSize = 15
 topCompactSummaryLbl.Parent = topCompactBtn
+addTextStroke(topCompactSummaryLbl, 2.0)
 
 local topCompactBadge = Instance.new("TextLabel")
-topCompactBadge.Size = UDim2.new(0, 82, 0, 20)
-topCompactBadge.Position = UDim2.new(1, -88, 0.5, -10)
-topCompactBadge.BackgroundColor3 = Color3.fromRGB(18, 28, 52)
-topCompactBadge.Text = "▾ TELEMETRY"
-topCompactBadge.TextColor3 = Color3.fromRGB(110, 210, 255)
+topCompactBadge.Size = UDim2.new(1, -84, 0, 16)
+topCompactBadge.Position = UDim2.new(0, 42, 0, 24)
+topCompactBadge.BackgroundTransparency = 1
+topCompactBadge.Text = "0/2 Drones  •  Hover for Info"
+topCompactBadge.TextColor3 = Color3.fromRGB(200, 218, 245)
 topCompactBadge.Font = Enum.Font.GothamBold
-topCompactBadge.TextSize = 10
+topCompactBadge.TextSize = 11
 topCompactBadge.Parent = topCompactBtn
-addCorner(topCompactBadge, 5)
+addTextStroke(topCompactBadge, 1.4)
 
+-- Orange-Red Sub-Banner directly underneath ("🔥 DRILL: 1 • DPS: 7", matching "🔥 RALLY x8")
+local topRallyBanner = Instance.new("TextButton")
+topRallyBanner.Name = "TopOrangeSubBanner"
+topRallyBanner.Size = UDim2.new(0, 210, 0, 24)
+topRallyBanner.AnchorPoint = Vector2.new(0.5, 0)
+topRallyBanner.Position = UDim2.new(0.5, 0, 0, 56)
+topRallyBanner.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+topRallyBanner.AutoButtonColor = false
+topRallyBanner.Text = ""
+topRallyBanner.Parent = inGameHUD
+addCorner(topRallyBanner, 7)
+addBorderStroke(topRallyBanner, Color3.fromRGB(10, 14, 24), 2.5)
+addGradient(topRallyBanner, Color3.fromRGB(255, 92, 38), Color3.fromRGB(214, 42, 22), 90)
+
+local topRallyText = Instance.new("TextLabel")
+topRallyText.Size = UDim2.new(1, -12, 1, 0)
+topRallyText.Position = UDim2.new(0, 6, 0, 0)
+topRallyText.BackgroundTransparency = 1
+topRallyText.Text = "🔥 DRILL x1  •  DPS 7"
+topRallyText.TextColor3 = Color3.fromRGB(255, 255, 255)
+topRallyText.Font = Enum.Font.GothamBlack
+topRallyText.TextSize = 12
+topRallyText.Parent = topRallyBanner
+addTextStroke(topRallyText, 1.8)
+
+-- Collapsible Telemetry & Quest Drawer (Only visible when hovering/clicking the top banner or QUESTS)
 local topProgressionCard = Instance.new("Frame")
 topProgressionCard.Name = "TopTelemetryDrawer"
-topProgressionCard.Size = UDim2.new(0, 520, 0, 102)
+topProgressionCard.Size = UDim2.new(0, 480, 0, 168)
 topProgressionCard.AnchorPoint = Vector2.new(0.5, 0)
-topProgressionCard.Position = UDim2.new(0.5, 0, 0, 44)
-topProgressionCard.BackgroundColor3 = Color3.fromRGB(9, 13, 24)
-topProgressionCard.BackgroundTransparency = 0.10
+topProgressionCard.Position = UDim2.new(0.5, 0, 0, 84)
+topProgressionCard.BackgroundColor3 = Color3.fromRGB(22, 34, 68)
 topProgressionCard.Visible = false
 topProgressionCard.Parent = inGameHUD
-addCorner(topProgressionCard, 10)
-addBorderStroke(topProgressionCard, Color3.fromRGB(70, 150, 235), 1.2)
-
-local topDrawerAccent = Instance.new("Frame")
-topDrawerAccent.Size = UDim2.new(0, 3, 1, -16)
-topDrawerAccent.Position = UDim2.new(0, 6, 0, 8)
-topDrawerAccent.BackgroundColor3 = Color3.fromRGB(75, 205, 255)
-topDrawerAccent.BorderSizePixel = 0
-topDrawerAccent.Parent = topProgressionCard
-addCorner(topDrawerAccent, 2)
+addCorner(topProgressionCard, 14)
+addBorderStroke(topProgressionCard, Color3.fromRGB(10, 14, 26), 3.0)
+addGradient(topProgressionCard, Color3.fromRGB(36, 58, 112), Color3.fromRGB(20, 32, 64), 90)
 
 local rankTitleLbl = Instance.new("TextLabel")
 rankTitleLbl.Size = UDim2.new(1, -28, 0, 20)
-rankTitleLbl.Position = UDim2.new(0, 16, 0, 6)
+rankTitleLbl.Position = UDim2.new(0, 14, 0, 8)
 rankTitleLbl.BackgroundTransparency = 1
 rankTitleLbl.Text = "RANK 1 // PROTO-PLANETOID (1.0x YIELD)"
-rankTitleLbl.TextColor3 = Color3.fromRGB(255, 215, 90)
+rankTitleLbl.TextColor3 = Color3.fromRGB(255, 225, 85)
 rankTitleLbl.Font = Enum.Font.GothamBlack
 rankTitleLbl.TextSize = 13
 rankTitleLbl.TextXAlignment = Enum.TextXAlignment.Left
 rankTitleLbl.Parent = topProgressionCard
+addTextStroke(rankTitleLbl, 1.6)
 
 local rankBarBg = Instance.new("Frame")
-rankBarBg.Size = UDim2.new(1, -32, 0, 16)
-rankBarBg.Position = UDim2.new(0, 16, 0, 29)
-rankBarBg.BackgroundColor3 = Color3.fromRGB(16, 22, 38)
+rankBarBg.Size = UDim2.new(1, -28, 0, 18)
+rankBarBg.Position = UDim2.new(0, 14, 0, 30)
+rankBarBg.BackgroundColor3 = Color3.fromRGB(14, 20, 38)
 rankBarBg.BorderSizePixel = 0
 rankBarBg.Parent = topProgressionCard
-addCorner(rankBarBg, 5)
-addBorderStroke(rankBarBg, Color3.fromRGB(48, 88, 145), 1.0)
+addCorner(rankBarBg, 6)
+addBorderStroke(rankBarBg, Color3.fromRGB(8, 12, 22), 2.0)
 
 local rankBarFill = Instance.new("Frame")
 rankBarFill.Size = UDim2.new(0.25, 0, 1, 0)
-rankBarFill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+rankBarFill.BackgroundColor3 = Color3.fromRGB(88, 232, 44)
 rankBarFill.BorderSizePixel = 0
 rankBarFill.Parent = rankBarBg
-addCorner(rankBarFill, 5)
-addGradient(rankBarFill, Color3.fromRGB(55, 215, 155), Color3.fromRGB(45, 165, 245), 0)
+addCorner(rankBarFill, 6)
 
 local rankBarText = Instance.new("TextLabel")
 rankBarText.Size = UDim2.new(1, -12, 1, 0)
 rankBarText.Position = UDim2.new(0, 6, 0, 0)
 rankBarText.BackgroundTransparency = 1
 rankBarText.Text = "Planet Value: 100 / 1.2K  •  Next: Awakening World"
-rankBarText.TextColor3 = Color3.fromRGB(240, 246, 255)
-rankBarText.Font = Enum.Font.GothamBold
+rankBarText.TextColor3 = Color3.fromRGB(255, 255, 255)
+rankBarText.Font = Enum.Font.GothamBlack
 rankBarText.TextSize = 10
 rankBarText.Parent = rankBarBg
+addTextStroke(rankBarText, 1.4)
 
 local zoneTitleLbl = Instance.new("TextLabel")
-zoneTitleLbl.Size = UDim2.new(1, -32, 0, 18)
-zoneTitleLbl.Position = UDim2.new(0, 16, 0, 50)
+zoneTitleLbl.Size = UDim2.new(1, -28, 0, 18)
+zoneTitleLbl.Position = UDim2.new(0, 14, 0, 52)
 zoneTitleLbl.BackgroundTransparency = 1
 zoneTitleLbl.Text = "GALACTIC NEXUS HUB  •  WASD + Shift Boost + Click Nodes to Mine"
-zoneTitleLbl.TextColor3 = Color3.fromRGB(115, 235, 190)
+zoneTitleLbl.TextColor3 = Color3.fromRGB(125, 240, 255)
 zoneTitleLbl.Font = Enum.Font.GothamBold
 zoneTitleLbl.TextSize = 11
 zoneTitleLbl.TextXAlignment = Enum.TextXAlignment.Left
 zoneTitleLbl.Parent = topProgressionCard
+addTextStroke(zoneTitleLbl, 1.3)
 
 local boosterStatusLbl = Instance.new("TextLabel")
-boosterStatusLbl.Size = UDim2.new(1, -32, 0, 22)
-boosterStatusLbl.Position = UDim2.new(0, 16, 0, 72)
+boosterStatusLbl.Size = UDim2.new(1, -28, 0, 18)
+boosterStatusLbl.Position = UDim2.new(0, 14, 0, 70)
 boosterStatusLbl.BackgroundTransparency = 1
 boosterStatusLbl.Text = "Drones: 0/2  •  Drill Power: 1  •  Next Gate: Belt Outpost"
-boosterStatusLbl.TextColor3 = Color3.fromRGB(190, 215, 245)
-boosterStatusLbl.Font = Enum.Font.GothamMedium
-boosterStatusLbl.TextSize = 11
+boosterStatusLbl.TextColor3 = Color3.fromRGB(215, 230, 255)
+boosterStatusLbl.Font = Enum.Font.GothamBold
+boosterStatusLbl.TextSize = 10
 boosterStatusLbl.TextXAlignment = Enum.TextXAlignment.Left
 boosterStatusLbl.Parent = topProgressionCard
+addTextStroke(boosterStatusLbl, 1.2)
+
+-- Embedded Quest / Directive Tracker inside the collapsible drawer
+local missionCard = Instance.new("Frame")
+missionCard.Name = "EmbeddedQuestBox"
+missionCard.Size = UDim2.new(1, -24, 0, 66)
+missionCard.Position = UDim2.new(0, 12, 0, 92)
+missionCard.BackgroundColor3 = Color3.fromRGB(16, 24, 48)
+missionCard.Parent = topProgressionCard
+addCorner(missionCard, 10)
+addBorderStroke(missionCard, Color3.fromRGB(10, 14, 24), 2.0)
+
+local missionHeader = Instance.new("TextLabel")
+missionHeader.Size = UDim2.new(0.62, -12, 0, 18)
+missionHeader.Position = UDim2.new(0, 10, 0, 4)
+missionHeader.BackgroundTransparency = 1
+missionHeader.Text = "QUEST #1: FIRST DRONE ROLL"
+missionHeader.TextColor3 = Color3.fromRGB(255, 220, 75)
+missionHeader.Font = Enum.Font.GothamBlack
+missionHeader.TextSize = 11
+missionHeader.TextXAlignment = Enum.TextXAlignment.Left
+missionHeader.Parent = missionCard
+addTextStroke(missionHeader, 1.4)
+
+local missionRewardLbl = Instance.new("TextLabel")
+missionRewardLbl.Size = UDim2.new(0.38, -10, 0, 18)
+missionRewardLbl.Position = UDim2.new(0.62, 0, 0, 4)
+missionRewardLbl.BackgroundTransparency = 1
+missionRewardLbl.Text = "+25💎 +60⛏"
+missionRewardLbl.TextColor3 = Color3.fromRGB(105, 245, 165)
+missionRewardLbl.Font = Enum.Font.GothamBlack
+missionRewardLbl.TextSize = 10
+missionRewardLbl.TextXAlignment = Enum.TextXAlignment.Right
+missionRewardLbl.Parent = missionCard
+addTextStroke(missionRewardLbl, 1.3)
+
+local missionDescLbl = Instance.new("TextLabel")
+missionDescLbl.Size = UDim2.new(1, -20, 0, 18)
+missionDescLbl.Position = UDim2.new(0, 10, 0, 22)
+missionDescLbl.BackgroundTransparency = 1
+missionDescLbl.Text = "Mine 25 Titanium Ore near the Hub and roll your first Drone."
+missionDescLbl.TextColor3 = Color3.fromRGB(225, 236, 255)
+missionDescLbl.Font = Enum.Font.GothamBold
+missionDescLbl.TextSize = 10
+missionDescLbl.TextTruncate = Enum.TextTruncate.AtEnd
+missionDescLbl.TextXAlignment = Enum.TextXAlignment.Left
+missionDescLbl.Parent = missionCard
+
+local missionBarBg = Instance.new("Frame")
+missionBarBg.Size = UDim2.new(1, -20, 0, 16)
+missionBarBg.Position = UDim2.new(0, 10, 0, 44)
+missionBarBg.BackgroundColor3 = Color3.fromRGB(10, 15, 28)
+missionBarBg.BorderSizePixel = 0
+missionBarBg.Parent = missionCard
+addCorner(missionBarBg, 5)
+addBorderStroke(missionBarBg, Color3.fromRGB(8, 12, 22), 1.5)
+
+local missionBarFill = Instance.new("Frame")
+missionBarFill.Size = UDim2.new(0, 0, 1, 0)
+missionBarFill.BackgroundColor3 = Color3.fromRGB(88, 232, 44)
+missionBarFill.BorderSizePixel = 0
+missionBarFill.Parent = missionBarBg
+addCorner(missionBarFill, 5)
+
+local missionBarText = Instance.new("TextLabel")
+missionBarText.Size = UDim2.new(1, 0, 1, 0)
+missionBarText.BackgroundTransparency = 1
+missionBarText.Text = "0 / 1"
+missionBarText.TextColor3 = Color3.fromRGB(255, 255, 255)
+missionBarText.Font = Enum.Font.GothamBlack
+missionBarText.TextSize = 10
+missionBarText.Parent = missionBarBg
+addTextStroke(missionBarText, 1.4)
 
 -- A2. ACTIVE TARGET LOCK HUD BAR (Shows when mining an asteroid, enemy, or rival planet)
 local targetLockCard = Instance.new("Frame")
 targetLockCard.Name = "ActiveTargetLockCard"
-targetLockCard.Size = UDim2.new(0, 320, 0, 44)
+targetLockCard.Size = UDim2.new(0, 316, 0, 44)
 targetLockCard.AnchorPoint = Vector2.new(0.5, 0)
-targetLockCard.Position = UDim2.new(0.5, 0, 0, 44)
-targetLockCard.BackgroundColor3 = Color3.fromRGB(10, 14, 26)
-targetLockCard.BackgroundTransparency = 0.14
+targetLockCard.Position = UDim2.new(0.5, 0, 0, 84)
+targetLockCard.BackgroundColor3 = Color3.fromRGB(20, 27, 45)
 targetLockCard.Visible = false
 targetLockCard.Parent = inGameHUD
-addCorner(targetLockCard, 8)
-local targetLockStroke = addBorderStroke(targetLockCard, Color3.fromRGB(95, 220, 255), 1.2)
+addCorner(targetLockCard, 10)
+local targetLockStroke = addBorderStroke(targetLockCard, Color3.fromRGB(10, 14, 24), 2.8)
 
 local targetLockTitle = Instance.new("TextLabel")
 targetLockTitle.Size = UDim2.new(1, -20, 0, 18)
 targetLockTitle.Position = UDim2.new(0, 10, 0, 4)
 targetLockTitle.BackgroundTransparency = 1
 targetLockTitle.Text = "TARGET // TITANIUM ORE"
-targetLockTitle.TextColor3 = Color3.fromRGB(235, 245, 255)
+targetLockTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 targetLockTitle.Font = Enum.Font.GothamBlack
 targetLockTitle.TextSize = 11
 targetLockTitle.TextXAlignment = Enum.TextXAlignment.Left
 targetLockTitle.Parent = targetLockCard
+addTextStroke(targetLockTitle, 1.6)
 
 local targetLockBarBg = Instance.new("Frame")
-targetLockBarBg.Size = UDim2.new(1, -20, 0, 14)
+targetLockBarBg.Size = UDim2.new(1, -20, 0, 15)
 targetLockBarBg.Position = UDim2.new(0, 10, 0, 24)
-targetLockBarBg.BackgroundColor3 = Color3.fromRGB(18, 24, 40)
+targetLockBarBg.BackgroundColor3 = Color3.fromRGB(12, 16, 30)
 targetLockBarBg.BorderSizePixel = 0
 targetLockBarBg.Parent = targetLockCard
-addCorner(targetLockBarBg, 4)
+addCorner(targetLockBarBg, 5)
+addBorderStroke(targetLockBarBg, Color3.fromRGB(8, 10, 18), 1.5)
 
 local targetLockBarFill = Instance.new("Frame")
 targetLockBarFill.Size = UDim2.new(1, 0, 1, 0)
-targetLockBarFill.BackgroundColor3 = Color3.fromRGB(75, 235, 155)
+targetLockBarFill.BackgroundColor3 = Color3.fromRGB(88, 232, 44)
 targetLockBarFill.BorderSizePixel = 0
 targetLockBarFill.Parent = targetLockBarBg
-addCorner(targetLockBarFill, 4)
+addCorner(targetLockBarFill, 5)
 
 local targetLockBarText = Instance.new("TextLabel")
 targetLockBarText.Size = UDim2.new(1, 0, 1, 0)
 targetLockBarText.BackgroundTransparency = 1
 targetLockBarText.Text = "HP: 35 / 35"
 targetLockBarText.TextColor3 = Color3.fromRGB(255, 255, 255)
-targetLockBarText.Font = Enum.Font.GothamBold
+targetLockBarText.Font = Enum.Font.GothamBlack
 targetLockBarText.TextSize = 10
 targetLockBarText.Parent = targetLockBarBg
+addTextStroke(targetLockBarText, 1.4)
 
 local function updateTopTelemetryVisibility()
 	local show = topInfoPinned or topBarHovered or topDrawerHovered
 	topProgressionCard.Visible = show
-	topCompactBadge.Text = topInfoPinned and "📌 PINNED" or (show and "▴ HIDE" or "▾ TELEMETRY")
-	topCompactBadge.TextColor3 = topInfoPinned and Color3.fromRGB(255, 220, 95) or Color3.fromRGB(110, 210, 255)
-	topCompactStroke.Color = show and Color3.fromRGB(110, 215, 255) or Color3.fromRGB(60, 120, 195)
-	targetLockCard.Position = show and UDim2.new(0.5, 0, 0, 150) or UDim2.new(0.5, 0, 0, 44)
+	topCompactStroke.Color = show and Color3.fromRGB(88, 232, 44) or Color3.fromRGB(8, 12, 22)
+	targetLockCard.Position = show and UDim2.new(0.5, 0, 0, 258) or UDim2.new(0.5, 0, 0, 84)
 end
 
 topCompactBtn.MouseEnter:Connect(function()
@@ -1925,6 +2060,14 @@ topCompactBtn.MouseEnter:Connect(function()
 	updateTopTelemetryVisibility()
 end)
 topCompactBtn.MouseLeave:Connect(function()
+	topBarHovered = false
+	task.delay(0.08, updateTopTelemetryVisibility)
+end)
+topRallyBanner.MouseEnter:Connect(function()
+	topBarHovered = true
+	updateTopTelemetryVisibility()
+end)
+topRallyBanner.MouseLeave:Connect(function()
 	topBarHovered = false
 	task.delay(0.08, updateTopTelemetryVisibility)
 end)
@@ -1941,177 +2084,155 @@ topCompactBtn.MouseButton1Click:Connect(function()
 	topInfoPinned = not topInfoPinned
 	updateTopTelemetryVisibility()
 end)
+topRallyBanner.MouseButton1Click:Connect(function()
+	playSFX(sfxClick, 0.25)
+	topInfoPinned = not topInfoPinned
+	updateTopTelemetryVisibility()
+end)
 
--- B. LEFT-SIDE UNIFIED COMMAND HUD: MISSION TRACKER + RESOURCE & FLEET TELEMETRY
-local missionCard = Instance.new("Frame")
-missionCard.Name = "LeftMissionTrackerCard"
-missionCard.Size = UDim2.new(0, 292, 0, 106)
-missionCard.Position = UDim2.new(0, 14, 0, 48)
-missionCard.BackgroundColor3 = Color3.fromRGB(9, 13, 24)
-missionCard.BackgroundTransparency = 0.14
-missionCard.Parent = inGameHUD
-addCorner(missionCard, 10)
-addBorderStroke(missionCard, Color3.fromRGB(65, 135, 215), 1.2)
-
-local missionAccent = Instance.new("Frame")
-missionAccent.Size = UDim2.new(0, 3, 1, -16)
-missionAccent.Position = UDim2.new(0, 5, 0, 8)
-missionAccent.BackgroundColor3 = Color3.fromRGB(250, 200, 65)
-missionAccent.BorderSizePixel = 0
-missionAccent.Parent = missionCard
-addCorner(missionAccent, 2)
-
-local missionHeader = Instance.new("TextLabel")
-missionHeader.Size = UDim2.new(1, -24, 0, 18)
-missionHeader.Position = UDim2.new(0, 14, 0, 6)
-missionHeader.BackgroundTransparency = 1
-missionHeader.Text = "DIRECTIVE 01 // FIRST DRONE ROLL"
-missionHeader.TextColor3 = Color3.fromRGB(250, 205, 75)
-missionHeader.Font = Enum.Font.GothamBlack
-missionHeader.TextSize = 11
-missionHeader.TextXAlignment = Enum.TextXAlignment.Left
-missionHeader.Parent = missionCard
-
-local missionDescLbl = Instance.new("TextLabel")
-missionDescLbl.Size = UDim2.new(1, -24, 0, 32)
-missionDescLbl.Position = UDim2.new(0, 14, 0, 25)
-missionDescLbl.BackgroundTransparency = 1
-missionDescLbl.Text = "Mine 25 Titanium Ore near the Hub and roll your first Drone."
-missionDescLbl.TextColor3 = Color3.fromRGB(210, 224, 245)
-missionDescLbl.Font = Enum.Font.GothamMedium
-missionDescLbl.TextSize = 11
-missionDescLbl.TextWrapped = true
-missionDescLbl.TextXAlignment = Enum.TextXAlignment.Left
-missionDescLbl.Parent = missionCard
-
-local missionBarBg = Instance.new("Frame")
-missionBarBg.Size = UDim2.new(1, -24, 0, 14)
-missionBarBg.Position = UDim2.new(0, 14, 0, 62)
-missionBarBg.BackgroundColor3 = Color3.fromRGB(16, 22, 38)
-missionBarBg.BorderSizePixel = 0
-missionBarBg.Parent = missionCard
-addCorner(missionBarBg, 4)
-addBorderStroke(missionBarBg, Color3.fromRGB(65, 115, 180), 1.0)
-
-local missionBarFill = Instance.new("Frame")
-missionBarFill.Size = UDim2.new(0, 0, 1, 0)
-missionBarFill.BackgroundColor3 = Color3.fromRGB(55, 205, 255)
-missionBarFill.BorderSizePixel = 0
-missionBarFill.Parent = missionBarBg
-addCorner(missionBarFill, 4)
-
-local missionBarText = Instance.new("TextLabel")
-missionBarText.Size = UDim2.new(1, 0, 1, 0)
-missionBarText.BackgroundTransparency = 1
-missionBarText.Text = "0 / 1"
-missionBarText.TextColor3 = Color3.fromRGB(255, 255, 255)
-missionBarText.Font = Enum.Font.GothamBold
-missionBarText.TextSize = 10
-missionBarText.Parent = missionBarBg
-
-local missionRewardLbl = Instance.new("TextLabel")
-missionRewardLbl.Size = UDim2.new(1, -24, 0, 18)
-missionRewardLbl.Position = UDim2.new(0, 14, 0, 82)
-missionRewardLbl.BackgroundTransparency = 1
-missionRewardLbl.Text = "REWARD // +25💎  +60⛏  +40⚡"
-missionRewardLbl.TextColor3 = Color3.fromRGB(95, 235, 165)
-missionRewardLbl.Font = Enum.Font.GothamBold
-missionRewardLbl.TextSize = 10
-missionRewardLbl.TextXAlignment = Enum.TextXAlignment.Left
-missionRewardLbl.Parent = missionCard
-
--- B2. LEFT-SIDE RESOURCE, CURRENCY & DRONE FLEET TELEMETRY MATRIX
-local leftResourcePanel = Instance.new("Frame")
-leftResourcePanel.Name = "LeftResourceTelemetryPanel"
-leftResourcePanel.Size = UDim2.new(0, 292, 0, 184)
-leftResourcePanel.Position = UDim2.new(0, 14, 0, 162)
-leftResourcePanel.BackgroundColor3 = Color3.fromRGB(9, 13, 24)
-leftResourcePanel.BackgroundTransparency = 0.14
-leftResourcePanel.Parent = inGameHUD
-addCorner(leftResourcePanel, 10)
-addBorderStroke(leftResourcePanel, Color3.fromRGB(55, 115, 190), 1.2)
-
-local pillGrid = Instance.new("UIGridLayout")
-pillGrid.CellSize = UDim2.new(0, 136, 0, 38)
-pillGrid.CellPadding = UDim2.new(0, 8, 0, 6)
-pillGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
-pillGrid.VerticalAlignment = Enum.VerticalAlignment.Center
-pillGrid.SortOrder = Enum.SortOrder.LayoutOrder
-pillGrid.Parent = leftResourcePanel
-
+-- B. TOP-LEFT STACKED BEVELED CURRENCY BARS (Matching Reference Screenshot: Dark Navy Pill + Icon + Outlined Value + Green [+] Button)
 local statCards: { [string]: { ValueLabel: TextLabel, RateLabel: TextLabel } } = {}
-local statDefs = {
-	{ Order = 1, Key = "Gems", Icon = "💎", Title = "STAR GEMS", Accent = Color3.fromRGB(245, 95, 235) },
-	{ Order = 2, Key = "DroneFleet", Icon = "🛸", Title = "DRILL & DPS", Accent = Color3.fromRGB(75, 225, 255) },
-	{ Order = 3, Key = "Minerals", Icon = "⛏", Title = "TITANIUM ORE", Accent = Color3.fromRGB(255, 175, 65) },
-	{ Order = 4, Key = "Energy", Icon = "⚡", Title = "PLASMA FLUX", Accent = Color3.fromRGB(85, 210, 255) },
-	{ Order = 5, Key = "Biomass", Icon = "🌿", Title = "BIO-SPORES", Accent = Color3.fromRGB(85, 235, 135) },
-	{ Order = 6, Key = "Tech", Icon = "🔬", Title = "QUANTUM ALLOY", Accent = Color3.fromRGB(185, 120, 255) },
-	{ Order = 7, Key = "PlanetValue", Icon = "★", Title = "PLANET VALUE", Accent = Color3.fromRGB(255, 120, 185) },
-	{ Order = 8, Key = "CosmicShards", Icon = "🪐", Title = "SHARDS / POP", Accent = Color3.fromRGB(255, 215, 75) },
-}
+do
+	local function makeDummyStatEntry()
+		local v = Instance.new("TextLabel")
+		local r = Instance.new("TextLabel")
+		return { ValueLabel = v, RateLabel = r }
+	end
+	for _, k in ipairs({ "Gems", "DroneFleet", "Minerals", "Energy", "Biomass", "Tech", "PlanetValue", "CosmicShards", "Population" }) do
+		statCards[k] = makeDummyStatEntry()
+	end
+end
 
-for _, def in ipairs(statDefs) do
-	local cell = Instance.new("Frame")
-	cell.LayoutOrder = def.Order
-	cell.BackgroundColor3 = Color3.fromRGB(15, 21, 38)
-	cell.BackgroundTransparency = 0.12
-	cell.BorderSizePixel = 0
-	cell.Parent = leftResourcePanel
-	addCorner(cell, 6)
-	addBorderStroke(cell, Color3.fromRGB(38, 64, 110), 1.0)
-
+local function createTopLeftCurrencyBar(orderIdx: number, yOffset: number, badgeColor: Color3, iconText: string, statKey: string, onPlusClick: () -> ())
 	local bar = Instance.new("Frame")
-	bar.Size = UDim2.new(0, 3, 1, -8)
-	bar.Position = UDim2.new(0, 4, 0, 4)
-	bar.BackgroundColor3 = def.Accent
-	bar.BorderSizePixel = 0
-	bar.Parent = cell
-	addCorner(bar, 2)
+	bar.Name = statKey .. "CurrencyBar"
+	bar.Size = UDim2.new(0, 212, 0, 42)
+	bar.Position = UDim2.new(0, 16, 0, yOffset)
+	bar.BackgroundColor3 = Color3.fromRGB(27, 45, 88)
+	bar.Parent = inGameHUD
+	addCorner(bar, 12)
+	addBorderStroke(bar, Color3.fromRGB(8, 12, 22), 3.0)
+	addGradient(bar, Color3.fromRGB(42, 68, 128), Color3.fromRGB(22, 36, 72), 90)
+
+	local gloss = Instance.new("Frame")
+	gloss.Size = UDim2.new(1, -12, 0.42, 0)
+	gloss.Position = UDim2.new(0, 6, 0, 3)
+	gloss.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	gloss.BackgroundTransparency = 0.88
+	gloss.BorderSizePixel = 0
+	gloss.Parent = bar
+	addCorner(gloss, 8)
+
+	local badge = Instance.new("Frame")
+	badge.Size = UDim2.new(0, 32, 0, 32)
+	badge.Position = UDim2.new(0, 6, 0.5, -16)
+	badge.BackgroundColor3 = badgeColor
+	badge.Parent = bar
+	addCorner(badge, 16)
+	addBorderStroke(badge, Color3.fromRGB(10, 14, 24), 2.2)
+
+	local badgeIcon = Instance.new("TextLabel")
+	badgeIcon.Size = UDim2.new(1, 0, 1, 0)
+	badgeIcon.BackgroundTransparency = 1
+	badgeIcon.Text = iconText
+	badgeIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+	badgeIcon.Font = Enum.Font.GothamBlack
+	badgeIcon.TextSize = 17
+	badgeIcon.Parent = badge
+	addTextStroke(badgeIcon, 1.5)
 
 	local valLbl = Instance.new("TextLabel")
-	valLbl.Size = UDim2.new(1, -16, 0, 19)
-	valLbl.Position = UDim2.new(0, 11, 0, 2)
+	valLbl.Size = UDim2.new(1, -86, 1, 0)
+	valLbl.Position = UDim2.new(0, 44, 0, 0)
 	valLbl.BackgroundTransparency = 1
 	valLbl.Text = "0"
-	valLbl.TextColor3 = Color3.fromRGB(242, 247, 255)
+	valLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
 	valLbl.Font = Enum.Font.GothamBlack
-	valLbl.TextSize = 13
+	valLbl.TextSize = 20
 	valLbl.TextXAlignment = Enum.TextXAlignment.Left
-	valLbl.Parent = cell
+	valLbl.Parent = bar
+	addTextStroke(valLbl, 2.2)
 
-	local rateLbl = Instance.new("TextLabel")
-	rateLbl.Size = UDim2.new(1, -16, 0, 14)
-	rateLbl.Position = UDim2.new(0, 11, 0, 21)
-	rateLbl.BackgroundTransparency = 1
-	rateLbl.Text = def.Icon .. " " .. def.Title
-	rateLbl.TextColor3 = def.Accent
-	rateLbl.Font = Enum.Font.GothamBold
-	rateLbl.TextSize = 9
-	rateLbl.TextXAlignment = Enum.TextXAlignment.Left
-	rateLbl.Parent = cell
+	local plusBtn = Instance.new("TextButton")
+	plusBtn.Size = UDim2.new(0, 32, 0, 32)
+	plusBtn.Position = UDim2.new(1, -37, 0.5, -16)
+	plusBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	plusBtn.Text = "+"
+	plusBtn.TextColor3 = Color3.fromRGB(14, 22, 12)
+	plusBtn.Font = Enum.Font.GothamBlack
+	plusBtn.TextSize = 22
+	plusBtn.Parent = bar
+	addCorner(plusBtn, 9)
+	addBorderStroke(plusBtn, Color3.fromRGB(10, 16, 10), 2.4)
+	addGradient(plusBtn, Color3.fromRGB(105, 245, 55), Color3.fromRGB(48, 192, 22), 90)
+	plusBtn.MouseButton1Click:Connect(onPlusClick)
 
-	statCards[def.Key] = { ValueLabel = valLbl, RateLabel = rateLbl }
+	statCards[statKey].ValueLabel = valLbl
 end
--- Alias Population to CosmicShards secondary card so legacy references remain safe
-statCards.Population = statCards.CosmicShards
 
--- C. POPUP TOAST BANNER (Sleek Bottom-Center Sci-Fi Notification)
+-- Bar 1: Titanium Ore / Minerals (Amber Coin Badge + Green [+])
+createTopLeftCurrencyBar(1, 14, Color3.fromRGB(255, 182, 38), "⛏", "Minerals", function()
+	if toggleTab then
+		toggleTab("Drones", "DRONE SHOP")
+	end
+end)
+
+-- Bar 2: Star Gems (Pink-Magenta Diamond Badge + Green [+])
+createTopLeftCurrencyBar(2, 62, Color3.fromRGB(245, 68, 172), "💎", "Gems", function()
+	if toggleTab then
+		toggleTab("BoostsRewards", "REWARDS & BOOSTS")
+	end
+end)
+
+-- Compact Secondary Resource Pill Strip directly below Bar 2 (Flux, Spores, Alloy)
+local subResourceStrip = Instance.new("Frame")
+subResourceStrip.Name = "SubResourceStrip"
+subResourceStrip.Size = UDim2.new(0, 212, 0, 26)
+subResourceStrip.Position = UDim2.new(0, 16, 0, 110)
+subResourceStrip.BackgroundColor3 = Color3.fromRGB(20, 32, 64)
+subResourceStrip.Parent = inGameHUD
+addCorner(subResourceStrip, 8)
+addBorderStroke(subResourceStrip, Color3.fromRGB(8, 12, 22), 2.4)
+
+local subResGrid = Instance.new("UIGridLayout")
+subResGrid.CellSize = UDim2.new(0.32, 0, 1, 0)
+subResGrid.CellPadding = UDim2.new(0.01, 0, 0, 0)
+subResGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+subResGrid.VerticalAlignment = Enum.VerticalAlignment.Center
+subResGrid.Parent = subResourceStrip
+
+for _, sInfo in ipairs({
+	{ Key = "Energy", Color = Color3.fromRGB(105, 225, 255) },
+	{ Key = "Biomass", Color = Color3.fromRGB(105, 245, 145) },
+	{ Key = "Tech", Color = Color3.fromRGB(205, 145, 255) },
+}) do
+	local lbl = Instance.new("TextLabel")
+	lbl.BackgroundTransparency = 1
+	lbl.Text = "0"
+	lbl.TextColor3 = sInfo.Color
+	lbl.Font = Enum.Font.GothamBlack
+	lbl.TextSize = 11
+	lbl.Parent = subResourceStrip
+	addTextStroke(lbl, 1.5)
+	statCards[sInfo.Key].ValueLabel = lbl
+end
+
+-- C. POPUP TOAST BANNER (Beveled Bottom-Center Notification)
 local toastLabel = Instance.new("TextLabel")
-toastLabel.Size = UDim2.new(0, 500, 0, 34)
+toastLabel.Size = UDim2.new(0, 500, 0, 36)
 toastLabel.AnchorPoint = Vector2.new(0.5, 1)
-toastLabel.Position = UDim2.new(0.5, 0, 1, -86)
-toastLabel.BackgroundColor3 = Color3.fromRGB(10, 15, 28)
+toastLabel.Position = UDim2.new(0.5, 0, 1, -76)
+toastLabel.BackgroundColor3 = Color3.fromRGB(20, 30, 58)
 toastLabel.BackgroundTransparency = 1
 toastLabel.TextTransparency = 1
 toastLabel.Text = ""
-toastLabel.TextColor3 = Color3.fromRGB(115, 230, 255)
-toastLabel.Font = Enum.Font.GothamBold
+toastLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+toastLabel.Font = Enum.Font.GothamBlack
 toastLabel.TextSize = 13
 toastLabel.TextWrapped = true
 toastLabel.Parent = screenGui
-addCorner(toastLabel, 8)
-local toastStroke = addBorderStroke(toastLabel, Color3.fromRGB(75, 175, 255), 1.2)
+addCorner(toastLabel, 10)
+local toastStroke = addBorderStroke(toastLabel, Color3.fromRGB(10, 14, 24), 2.5)
 toastStroke.Transparency = 1
 
 local toastId = 0
@@ -2121,10 +2242,9 @@ local function showToast(msg: string, color: Color3)
 	playSFX(sfxUpgrade, 0.30, 0.08)
 	toastLabel.Text = msg
 	toastLabel.TextColor3 = color
-	toastStroke.Color = color
-	toastLabel.BackgroundTransparency = 0.12
+	toastLabel.BackgroundTransparency = 0.06
 	toastLabel.TextTransparency = 0
-	toastStroke.Transparency = 0.25
+	toastStroke.Transparency = 0
 	task.delay(3.2, function()
 		if toastId == myId then
 			TweenService:Create(toastLabel, TweenInfo.new(0.35), {
@@ -2140,73 +2260,189 @@ end
 NotificationEvent.OnClientEvent:Connect(showToast)
 
 -- ============================================================================
--- 7. DEDICATED HUB MACHINE UIs, DRONE FOUNDRY, BOOSTS, EVOLUTION, UPGRADES & WARP
+-- 7. SCREENSHOT-MATCHED MODAL WINDOW: FLOATING TOP TABS + SKY-BLUE & WHITE FRAME + 3D SPOTLIGHT
 -- ============================================================================
 local modalFrame = Instance.new("Frame")
 modalFrame.Name = "SimulatorModalWindow"
-modalFrame.Size = UDim2.new(0, 880, 0, 530)
+modalFrame.Size = UDim2.new(0, 860, 0, 470)
 modalFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-modalFrame.Position = UDim2.new(0.5, 110, 0.5, -6)
-modalFrame.BackgroundColor3 = Color3.fromRGB(9, 13, 24)
-modalFrame.BackgroundTransparency = 0.05
+modalFrame.Position = UDim2.new(0.5, 105, 0.5, 24)
+modalFrame.BackgroundColor3 = Color3.fromRGB(238, 246, 255) -- Crisp Ice-White Outer Rim
 modalFrame.Visible = false
 modalFrame.Parent = inGameHUD
-addCorner(modalFrame, 12)
-addBorderStroke(modalFrame, Color3.fromRGB(70, 150, 235), 1.4)
+addCorner(modalFrame, 18)
+addBorderStroke(modalFrame, Color3.fromRGB(10, 14, 26), 3.5)
 
-local modalHeader = Instance.new("Frame")
-modalHeader.Size = UDim2.new(1, 0, 0, 46)
-modalHeader.BackgroundColor3 = Color3.fromRGB(14, 20, 36)
-modalHeader.BorderSizePixel = 0
-modalHeader.Parent = modalFrame
-addCorner(modalHeader, 12)
+-- Inner Royal Sky-Blue Frame (Matches the vibrant blue SHOP body in the screenshot!)
+local modalInnerSky = Instance.new("Frame")
+modalInnerSky.Name = "ModalSkyBlueBody"
+modalInnerSky.Size = UDim2.new(1, -14, 1, -14)
+modalInnerSky.Position = UDim2.new(0, 7, 0, 7)
+modalInnerSky.BackgroundColor3 = Color3.fromRGB(48, 132, 242)
+modalInnerSky.BorderSizePixel = 0
+modalInnerSky.Parent = modalFrame
+addCorner(modalInnerSky, 14)
+addBorderStroke(modalInnerSky, Color3.fromRGB(22, 68, 152), 2.0)
+addGradient(modalInnerSky, Color3.fromRGB(64, 152, 255), Color3.fromRGB(30, 104, 218), 90)
 
-local modalHeaderLine = Instance.new("Frame")
-modalHeaderLine.Size = UDim2.new(1, -24, 0, 1)
-modalHeaderLine.Position = UDim2.new(0, 12, 1, -1)
-modalHeaderLine.BackgroundColor3 = Color3.fromRGB(65, 145, 230)
-modalHeaderLine.BackgroundTransparency = 0.35
-modalHeaderLine.BorderSizePixel = 0
-modalHeaderLine.Parent = modalHeader
-
+-- Big Outlined Window Title on Top-Left ("DRONE SHOP", "UPGRADES", etc.)
 local modalTitleLabel = Instance.new("TextLabel")
-modalTitleLabel.Size = UDim2.new(1, -80, 1, 0)
-modalTitleLabel.Position = UDim2.new(0, 18, 0, 0)
+modalTitleLabel.Size = UDim2.new(0, 380, 0, 36)
+modalTitleLabel.Position = UDim2.new(0, 18, 0, 8)
 modalTitleLabel.BackgroundTransparency = 1
-modalTitleLabel.Text = "ORBITAL COMMAND TERMINAL"
-modalTitleLabel.TextColor3 = Color3.fromRGB(235, 244, 255)
+modalTitleLabel.Text = "DRONE SHOP"
+modalTitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 modalTitleLabel.Font = Enum.Font.GothamBlack
-modalTitleLabel.TextSize = 16
+modalTitleLabel.TextSize = 24
 modalTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-modalTitleLabel.Parent = modalHeader
+modalTitleLabel.Parent = modalInnerSky
+addTextStroke(modalTitleLabel, 2.4)
 
+-- Top-Right Mini Currency Pills inside the Modal Header (Matching [100.1K] and [0 💎] in Screenshot!)
+local modalHeaderOrePill = Instance.new("Frame")
+modalHeaderOrePill.Size = UDim2.new(0, 132, 0, 32)
+modalHeaderOrePill.Position = UDim2.new(1, -310, 0, 10)
+modalHeaderOrePill.BackgroundColor3 = Color3.fromRGB(20, 28, 48)
+modalHeaderOrePill.Parent = modalInnerSky
+addCorner(modalHeaderOrePill, 8)
+addBorderStroke(modalHeaderOrePill, Color3.fromRGB(8, 12, 22), 2.5)
+
+local modalHeaderOreLbl = Instance.new("TextLabel")
+modalHeaderOreLbl.Size = UDim2.new(1, -12, 1, 0)
+modalHeaderOreLbl.Position = UDim2.new(0, 6, 0, 0)
+modalHeaderOreLbl.BackgroundTransparency = 1
+modalHeaderOreLbl.Text = "⛏ 0"
+modalHeaderOreLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+modalHeaderOreLbl.Font = Enum.Font.GothamBlack
+modalHeaderOreLbl.TextSize = 15
+modalHeaderOreLbl.Parent = modalHeaderOrePill
+addTextStroke(modalHeaderOreLbl, 1.8)
+
+local modalHeaderGemPill = Instance.new("Frame")
+modalHeaderGemPill.Size = UDim2.new(0, 124, 0, 32)
+modalHeaderGemPill.Position = UDim2.new(1, -170, 0, 10)
+modalHeaderGemPill.BackgroundColor3 = Color3.fromRGB(20, 28, 48)
+modalHeaderGemPill.Parent = modalInnerSky
+addCorner(modalHeaderGemPill, 8)
+addBorderStroke(modalHeaderGemPill, Color3.fromRGB(8, 12, 22), 2.5)
+
+local modalHeaderGemLbl = Instance.new("TextLabel")
+modalHeaderGemLbl.Size = UDim2.new(1, -12, 1, 0)
+modalHeaderGemLbl.Position = UDim2.new(0, 6, 0, 0)
+modalHeaderGemLbl.BackgroundTransparency = 1
+modalHeaderGemLbl.Text = "💎 0"
+modalHeaderGemLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+modalHeaderGemLbl.Font = Enum.Font.GothamBlack
+modalHeaderGemLbl.TextSize = 15
+modalHeaderGemLbl.Parent = modalHeaderGemPill
+addTextStroke(modalHeaderGemLbl, 1.8)
+
+-- Overlapping Red Square [X] Close Button on Top-Right Corner (Exact match to screenshot!)
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 32, 0, 32)
-closeBtn.Position = UDim2.new(1, -40, 0.5, -16)
-closeBtn.BackgroundColor3 = Color3.fromRGB(34, 22, 34)
-closeBtn.Text = "✕"
-closeBtn.TextColor3 = Color3.fromRGB(255, 110, 125)
+closeBtn.Name = "RedCloseSquareBtn"
+closeBtn.Size = UDim2.new(0, 46, 0, 46)
+closeBtn.Position = UDim2.new(1, -24, 0, -18)
+closeBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 closeBtn.Font = Enum.Font.GothamBlack
-closeBtn.TextSize = 14
-closeBtn.Parent = modalHeader
+closeBtn.TextSize = 25
+closeBtn.ZIndex = 10
+closeBtn.Parent = modalFrame
 addCorner(closeBtn, 10)
-addBorderStroke(closeBtn, Color3.fromRGB(255, 255, 255), 1.8)
-addTextStroke(closeBtn, 1.8)
+addBorderStroke(closeBtn, Color3.fromRGB(12, 14, 22), 3.0)
+addGradient(closeBtn, Color3.fromRGB(255, 72, 68), Color3.fromRGB(204, 28, 28), 90)
+addTextStroke(closeBtn, 2.4)
+attachBounceAndSFX(closeBtn)
 
-local tabPages: { [string]: ScrollingFrame } = {}
+-- Floating Top Category Tabs Sitting Above the Modal Frame (Active = Bright Lime Green, Inactive = Dark Navy)
+local topCategoryBar = Instance.new("Frame")
+topCategoryBar.Name = "FloatingTopCategoryBar"
+topCategoryBar.Size = UDim2.new(1, -20, 0, 40)
+topCategoryBar.Position = UDim2.new(0, 4, 0, -48)
+topCategoryBar.BackgroundTransparency = 1
+topCategoryBar.Parent = modalFrame
+
+local topCatLayout = Instance.new("UIListLayout")
+topCatLayout.FillDirection = Enum.FillDirection.Horizontal
+topCatLayout.Padding = UDim.new(0, 8)
+topCatLayout.SortOrder = Enum.SortOrder.LayoutOrder
+topCatLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+topCatLayout.Parent = topCategoryBar
+
+local topCategoryBtns: { [string]: { Btn: TextButton, Grad: UIGradient } } = {}
+local topCategoryDefs = {
+	{ Order = 1, Key = "Drones", Label = "🛸 DRONES", Title = "DRONE SHOP" },
+	{ Order = 2, Key = "PlanetValue", Label = "⬆️ UPGRADES", Title = "PLANET UPGRADES" },
+	{ Order = 3, Key = "Machines", Label = "⚙️ MACHINES", Title = "HUB MACHINES" },
+	{ Order = 4, Key = "WarpAscend", Label = "🛰️ STATIONS", Title = "STATIONS & WARP" },
+	{ Order = 5, Key = "Evolution", Label = "🧬 EVOLVE", Title = "EVOLUTION TREE" },
+	{ Order = 6, Key = "BoostsRewards", Label = "🎁 REWARDS", Title = "REWARDS & BOOSTS" },
+}
+
+local tabPages: { [string]: GuiObject } = {}
 local activeTab: string? = nil
+local selectedMachineFilter: string? = nil
+
+local function updateTopCategoryTabVisuals()
+	for k, ui in pairs(topCategoryBtns) do
+		local isAct = (k == activeTab)
+		if isAct then
+			ui.Grad.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(108, 245, 58)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(52, 192, 22)),
+			})
+		else
+			ui.Grad.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(28, 38, 64)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(16, 22, 38)),
+			})
+		end
+	end
+end
+
+for _, cDef in ipairs(topCategoryDefs) do
+	local tBtn = Instance.new("TextButton")
+	tBtn.LayoutOrder = cDef.Order
+	tBtn.Size = UDim2.new(0, 128, 0, 38)
+	tBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	tBtn.Text = cDef.Label
+	tBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	tBtn.Font = Enum.Font.GothamBlack
+	tBtn.TextSize = 13
+	tBtn.Parent = topCategoryBar
+	addCorner(tBtn, 10)
+	addBorderStroke(tBtn, Color3.fromRGB(8, 12, 22), 2.8)
+	addTextStroke(tBtn, 1.8)
+
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90
+	grad.Parent = tBtn
+
+	topCategoryBtns[cDef.Key] = { Btn = tBtn, Grad = grad }
+	tBtn.MouseButton1Click:Connect(function()
+		if cDef.Key == "Machines" then
+			openMachineModal(nil)
+		else
+			toggleTab(cDef.Key, cDef.Title)
+		end
+	end)
+end
 
 local function createTabPage(name: string): ScrollingFrame
 	local page = Instance.new("ScrollingFrame")
 	page.Name = name .. "Page"
-	page.Size = UDim2.new(1, -28, 1, -66)
-	page.Position = UDim2.new(0, 14, 0, 56)
-	page.BackgroundTransparency = 1
+	page.Size = UDim2.new(1, -24, 1, -58)
+	page.Position = UDim2.new(0, 12, 0, 48)
+	page.BackgroundColor3 = Color3.fromRGB(28, 86, 188)
+	page.BackgroundTransparency = 0.35
+	page.BorderSizePixel = 0
 	page.ScrollBarThickness = 6
 	page.Visible = false
 	page.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	page.CanvasSize = UDim2.new(0, 0, 0, 0)
-	page.Parent = modalFrame
+	page.Parent = modalInnerSky
+	addCorner(page, 12)
 	tabPages[name] = page
 	return page
 end
@@ -2215,10 +2451,18 @@ local machinesPage = createTabPage("Machines")
 local evolutionPage = createTabPage("Evolution")
 local planetValuePage = createTabPage("PlanetValue")
 local warpAscendPage = createTabPage("WarpAscend")
-local dronesPage = createTabPage("Drones")
 local boostsRewardsPage = createTabPage("BoostsRewards")
 
-local selectedMachineFilter: string? = nil
+-- Drones Page uses a Full Master-Detail Split Frame (Left 62% Rarity Card Grid + Right 38% Circular 3D Spotlight Inspector!)
+local dronesPage = Instance.new("Frame")
+dronesPage.Name = "DronesMasterDetailPage"
+dronesPage.Size = UDim2.new(1, -24, 1, -58)
+dronesPage.Position = UDim2.new(0, 12, 0, 48)
+dronesPage.BackgroundTransparency = 1
+dronesPage.Visible = false
+dronesPage.Parent = modalInnerSky
+tabPages["Drones"] = dronesPage
+
 local machineCardsUI: {
 	[string]: {
 		Card: Frame,
@@ -2230,15 +2474,15 @@ local machineCardsUI: {
 	},
 } = {}
 
-local function openMachineModal(machineId: string?)
+openMachineModal = function(machineId: string?)
 	playSFX(sfxClick, 0.28)
 	selectedMachineFilter = machineId
 	activeTab = "Machines"
 	if machineId and PlanetConfig.HubMachines[machineId] then
 		local mDef = PlanetConfig.HubMachines[machineId]
-		modalTitleLabel.Text = mDef.Name .. "  (Dedicated Machine UI)"
+		modalTitleLabel.Text = string.upper(mDef.Name)
 	else
-		modalTitleLabel.Text = "⚙️ ALL GALACTIC HUB MACHINES (TIERED OVERCLOCK)"
+		modalTitleLabel.Text = "HUB MACHINES"
 	end
 	for k, page in pairs(tabPages) do
 		page.Visible = (k == "Machines")
@@ -2246,10 +2490,11 @@ local function openMachineModal(machineId: string?)
 	for mId, ui in pairs(machineCardsUI) do
 		ui.Card.Visible = (machineId == nil) or (mId == machineId)
 	end
+	updateTopCategoryTabVisuals()
 	modalFrame.Visible = true
 end
 
-local function toggleTab(tabKey: string, titleText: string)
+toggleTab = function(tabKey: string, titleText: string)
 	playSFX(sfxClick, 0.28)
 	if modalFrame.Visible and activeTab == tabKey and selectedMachineFilter == nil then
 		modalFrame.Visible = false
@@ -2267,6 +2512,7 @@ local function toggleTab(tabKey: string, titleText: string)
 			ui.Card.Visible = true
 		end
 	end
+	updateTopCategoryTabVisuals()
 	modalFrame.Visible = true
 end
 
@@ -2657,182 +2903,123 @@ do
 end
 
 -- ============================================================================
--- 7B. ORBITAL DRONE FOUNDRY: RESOURCE POD ROLLS, GEM SLOTS & LEVEL UP (`dronesPage`)
+-- 7B. SCREENSHOT-MATCHED DRONE SHOP & INVENTORY SHOWCASE (`dronesPage`)
+--     Left 62%: Rarity-Colored Vertical Cards with 3D ViewportFrames & Top-Left Ribbons
+--     Right 38%: Circular 3D Spotlight Inspector + Big Lime-Green Beveled Action Button
 -- ============================================================================
 local droneSummaryLabel: TextLabel
 local buyDroneSlotBtn: TextButton
 local robuxDroneSlotBtn: TextButton
 local droneInventoryGridFrame: Frame
 local lastDroneInvUISignature = ""
-do
-	local dList = Instance.new("UIListLayout")
-	dList.Padding = UDim.new(0, 10)
-	dList.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	dList.SortOrder = Enum.SortOrder.LayoutOrder
-	dList.Parent = dronesPage
+local selectedShowcaseItem: { Kind: string, Id: string, Uid: string? } = { Kind = "Pod", Id = "BasicDronePod", Uid = nil }
+local updateDroneSpotlightPanel: () -> ()
+local spotlightViewportModel: Model? = nil
+local spotlightViewportCam: Camera? = nil
 
-	-- 1. 4-Tier Resource Roll Pods (2x2 Grid — Costs Space Resources, NOT Gems!)
-	local podRow = Instance.new("Frame")
-	podRow.LayoutOrder = 1
-	podRow.Size = UDim2.new(1, -16, 0, 236)
-	podRow.BackgroundTransparency = 1
-	podRow.Parent = dronesPage
-
-	local podGrid = Instance.new("UIGridLayout")
-	podGrid.CellSize = UDim2.new(0, 410, 0, 112)
-	podGrid.CellPadding = UDim2.new(0, 12, 0, 10)
-	podGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	podGrid.SortOrder = Enum.SortOrder.LayoutOrder
-	podGrid.Parent = podRow
-
-	for podIdx, pod in ipairs(PlanetConfig.CompanionPods) do
-		local pCard = Instance.new("Frame")
-		pCard.LayoutOrder = podIdx
-		pCard.BackgroundColor3 = Color3.fromRGB(14, 20, 36)
-		pCard.Parent = podRow
-		addCorner(pCard, 10)
-		addBorderStroke(pCard, pod.Color, 1.3)
-
-		local pAccent = Instance.new("Frame")
-		pAccent.Size = UDim2.new(0, 4, 1, -16)
-		pAccent.Position = UDim2.new(0, 6, 0, 8)
-		pAccent.BackgroundColor3 = pod.Color
-		pAccent.BorderSizePixel = 0
-		pAccent.Parent = pCard
-		addCorner(pAccent, 2)
-
-		local pTitle = Instance.new("TextLabel")
-		pTitle.Size = UDim2.new(1, -165, 0, 20)
-		pTitle.Position = UDim2.new(0, 16, 0, 7)
-		pTitle.BackgroundTransparency = 1
-		pTitle.Text = string.upper(pod.Name)
-		pTitle.TextColor3 = pod.Color
-		pTitle.Font = Enum.Font.GothamBlack
-		pTitle.TextSize = 13
-		pTitle.TextXAlignment = Enum.TextXAlignment.Left
-		pTitle.Parent = pCard
-
-		local pDesc = Instance.new("TextLabel")
-		pDesc.Size = UDim2.new(1, -165, 0, 34)
-		pDesc.Position = UDim2.new(0, 16, 0, 28)
-		pDesc.BackgroundTransparency = 1
-		pDesc.Text = pod.Description
-		pDesc.TextColor3 = Color3.fromRGB(195, 210, 235)
-		pDesc.Font = Enum.Font.GothamMedium
-		pDesc.TextSize = 10
-		pDesc.TextWrapped = true
-		pDesc.TextXAlignment = Enum.TextXAlignment.Left
-		pDesc.Parent = pCard
-
-		local pCost = Instance.new("TextLabel")
-		pCost.Size = UDim2.new(1, -165, 0, 20)
-		pCost.Position = UDim2.new(0, 16, 1, -26)
-		pCost.BackgroundTransparency = 1
-		pCost.Text = "ROLL COST // " .. formatCost(pod.Cost or {})
-		pCost.TextColor3 = Color3.fromRGB(255, 215, 85)
-		pCost.Font = Enum.Font.GothamBold
-		pCost.TextSize = 11
-		pCost.TextXAlignment = Enum.TextXAlignment.Left
-		pCost.Parent = pCard
-
-		local hatch1Btn = Instance.new("TextButton")
-		hatch1Btn.Size = UDim2.new(0, 138, 0, 42)
-		hatch1Btn.Position = UDim2.new(1, -148, 0, 12)
-		hatch1Btn.BackgroundColor3 = pod.Color
-		hatch1Btn.Text = "ROLL 1x DRONE"
-		hatch1Btn.TextColor3 = Color3.fromRGB(10, 14, 24)
-		hatch1Btn.Font = Enum.Font.GothamBlack
-		hatch1Btn.TextSize = 12
-		hatch1Btn.Parent = pCard
-		addCorner(hatch1Btn, 7)
-
-		local hatch3Btn = Instance.new("TextButton")
-		hatch3Btn.Size = UDim2.new(0, 138, 0, 40)
-		hatch3Btn.Position = UDim2.new(1, -148, 0, 60)
-		hatch3Btn.BackgroundColor3 = Color3.fromRGB(32, 46, 82)
-		hatch3Btn.Text = "⚡ ROLL 3x"
-		hatch3Btn.TextColor3 = Color3.fromRGB(240, 246, 255)
-		hatch3Btn.Font = Enum.Font.GothamBlack
-		hatch3Btn.TextSize = 11
-		hatch3Btn.Parent = pCard
-		addCorner(hatch3Btn, 7)
-		addBorderStroke(hatch3Btn, pod.Color, 1.1)
-
-		hatch1Btn.MouseButton1Click:Connect(function()
-			playSFX(sfxEvolve, 0.42)
-			HatchCompanionPodEvent:FireServer(pod.Id, false)
-		end)
-		hatch3Btn.MouseButton1Click:Connect(function()
-			playSFX(sfxEvolve, 0.48)
-			HatchCompanionPodEvent:FireServer(pod.Id, true)
-		end)
+local function populateDroneViewport(vp: ViewportFrame, droneId: string, isGolden: boolean, lvl: number)
+	for _, ch in ipairs(vp:GetChildren()) do
+		ch:Destroy()
 	end
+	local cam = Instance.new("Camera")
+	cam.FieldOfView = 42
+	cam.Parent = vp
+	vp.CurrentCamera = cam
 
-	-- 2. Fleet Control & Expensive Gem Drone Slot Upgrade Bar
+	local ok, dm = pcall(function()
+		return PlanetGenerator.BuildCompanionDroneModel(droneId, isGolden, lvl)
+	end)
+	if ok and dm then
+		dm:PivotTo(CFrame.new(0, 0, 0) * CFrame.Angles(math.rad(10), math.rad(-28), 0))
+		dm.Parent = vp
+	end
+	cam.CFrame = CFrame.lookAt(Vector3.new(0, 1.8, 7.6), Vector3.new(0, 0, 0))
+	return dm, cam
+end
+
+do
+	-- LEFT 62%: Showcase Grid Container (Matches the light-blue recessed card grid in the screenshot!)
+	local leftGridPanel = Instance.new("Frame")
+	leftGridPanel.Name = "LeftShowcaseGridContainer"
+	leftGridPanel.Size = UDim2.new(0.62, -8, 1, 0)
+	leftGridPanel.Position = UDim2.new(0, 0, 0, 0)
+	leftGridPanel.BackgroundColor3 = Color3.fromRGB(32, 92, 198)
+	leftGridPanel.BackgroundTransparency = 0.25
+	leftGridPanel.Parent = dronesPage
+	addCorner(leftGridPanel, 12)
+	addBorderStroke(leftGridPanel, Color3.fromRGB(18, 56, 132), 2.0)
+
+	-- Top Quick-Action Strip inside Left Panel (Slots, Equip Best, Fuse 3->1)
 	local actRow = Instance.new("Frame")
-	actRow.LayoutOrder = 2
-	actRow.Size = UDim2.new(1, -16, 0, 52)
-	actRow.BackgroundColor3 = Color3.fromRGB(14, 20, 36)
-	actRow.Parent = dronesPage
-	addCorner(actRow, 10)
-	addBorderStroke(actRow, Color3.fromRGB(70, 150, 235), 1.2)
+	actRow.Size = UDim2.new(1, -12, 0, 38)
+	actRow.Position = UDim2.new(0, 6, 0, 6)
+	actRow.BackgroundColor3 = Color3.fromRGB(18, 28, 54)
+	actRow.Parent = leftGridPanel
+	addCorner(actRow, 8)
+	addBorderStroke(actRow, Color3.fromRGB(8, 12, 22), 2.0)
 
 	droneSummaryLabel = Instance.new("TextLabel")
-	droneSummaryLabel.Size = UDim2.new(1, -490, 1, 0)
-	droneSummaryLabel.Position = UDim2.new(0, 14, 0, 0)
+	droneSummaryLabel.Size = UDim2.new(1, -335, 1, 0)
+	droneSummaryLabel.Position = UDim2.new(0, 10, 0, 0)
 	droneSummaryLabel.BackgroundTransparency = 1
-	droneSummaryLabel.Text = "SLOTS: 0 / 2  •  DRILL: 1  •  DPS: 7"
-	droneSummaryLabel.TextColor3 = Color3.fromRGB(110, 235, 190)
+	droneSummaryLabel.Text = "SLOTS: 0/2  •  🔨 1"
+	droneSummaryLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 	droneSummaryLabel.Font = Enum.Font.GothamBlack
 	droneSummaryLabel.TextSize = 11
-	droneSummaryLabel.TextWrapped = true
 	droneSummaryLabel.TextXAlignment = Enum.TextXAlignment.Left
 	droneSummaryLabel.Parent = actRow
+	addTextStroke(droneSummaryLabel, 1.5)
 
 	buyDroneSlotBtn = Instance.new("TextButton")
-	buyDroneSlotBtn.Size = UDim2.new(0, 168, 0, 36)
-	buyDroneSlotBtn.Position = UDim2.new(1, -474, 0.5, -18)
-	buyDroneSlotBtn.BackgroundColor3 = Color3.fromRGB(185, 55, 225)
+	buyDroneSlotBtn.Size = UDim2.new(0, 126, 0, 28)
+	buyDroneSlotBtn.Position = UDim2.new(1, -324, 0.5, -14)
+	buyDroneSlotBtn.BackgroundColor3 = Color3.fromRGB(215, 62, 242)
 	buyDroneSlotBtn.Text = "+1 SLOT (500 💎)"
 	buyDroneSlotBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	buyDroneSlotBtn.Font = Enum.Font.GothamBlack
-	buyDroneSlotBtn.TextSize = 11
+	buyDroneSlotBtn.TextSize = 10
 	buyDroneSlotBtn.Parent = actRow
-	addCorner(buyDroneSlotBtn, 7)
+	addCorner(buyDroneSlotBtn, 6)
+	addBorderStroke(buyDroneSlotBtn, Color3.fromRGB(10, 14, 24), 1.8)
+	addTextStroke(buyDroneSlotBtn, 1.4)
 
 	robuxDroneSlotBtn = Instance.new("TextButton")
-	robuxDroneSlotBtn.Size = UDim2.new(0, 74, 0, 36)
-	robuxDroneSlotBtn.Position = UDim2.new(1, -300, 0.5, -18)
-	robuxDroneSlotBtn.BackgroundColor3 = Color3.fromRGB(36, 52, 88)
-	robuxDroneSlotBtn.Text = "R$ PASS"
-	robuxDroneSlotBtn.TextColor3 = Color3.fromRGB(130, 220, 255)
+	robuxDroneSlotBtn.Size = UDim2.new(0, 52, 0, 28)
+	robuxDroneSlotBtn.Position = UDim2.new(1, -194, 0.5, -14)
+	robuxDroneSlotBtn.BackgroundColor3 = Color3.fromRGB(38, 56, 98)
+	robuxDroneSlotBtn.Text = "R$ 99"
+	robuxDroneSlotBtn.TextColor3 = Color3.fromRGB(130, 225, 255)
 	robuxDroneSlotBtn.Font = Enum.Font.GothamBlack
-	robuxDroneSlotBtn.TextSize = 10
+	robuxDroneSlotBtn.TextSize = 9
 	robuxDroneSlotBtn.Parent = actRow
-	addCorner(robuxDroneSlotBtn, 7)
-	addBorderStroke(robuxDroneSlotBtn, Color3.fromRGB(85, 175, 255), 1.0)
+	addCorner(robuxDroneSlotBtn, 6)
+	addBorderStroke(robuxDroneSlotBtn, Color3.fromRGB(10, 14, 24), 1.6)
 
 	local equipBestBtn = Instance.new("TextButton")
-	equipBestBtn.Size = UDim2.new(0, 104, 0, 36)
-	equipBestBtn.Position = UDim2.new(1, -220, 0.5, -18)
-	equipBestBtn.BackgroundColor3 = Color3.fromRGB(40, 185, 110)
-	equipBestBtn.Text = "⚡ EQUIP BEST"
+	equipBestBtn.Size = UDim2.new(0, 68, 0, 28)
+	equipBestBtn.Position = UDim2.new(1, -138, 0.5, -14)
+	equipBestBtn.BackgroundColor3 = Color3.fromRGB(72, 225, 48)
+	equipBestBtn.Text = "BEST"
 	equipBestBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	equipBestBtn.Font = Enum.Font.GothamBlack
-	equipBestBtn.TextSize = 11
+	equipBestBtn.TextSize = 10
 	equipBestBtn.Parent = actRow
-	addCorner(equipBestBtn, 7)
+	addCorner(equipBestBtn, 6)
+	addBorderStroke(equipBestBtn, Color3.fromRGB(10, 14, 24), 1.8)
+	addTextStroke(equipBestBtn, 1.4)
 
 	local craftGoldBtn = Instance.new("TextButton")
-	craftGoldBtn.Size = UDim2.new(0, 104, 0, 36)
-	craftGoldBtn.Position = UDim2.new(1, -110, 0.5, -18)
-	craftGoldBtn.BackgroundColor3 = Color3.fromRGB(225, 165, 35)
-	craftGoldBtn.Text = "✨ FUSE 3➔1"
-	craftGoldBtn.TextColor3 = Color3.fromRGB(14, 18, 28)
+	craftGoldBtn.Size = UDim2.new(0, 62, 0, 28)
+	craftGoldBtn.Position = UDim2.new(1, -66, 0.5, -14)
+	craftGoldBtn.BackgroundColor3 = Color3.fromRGB(255, 192, 38)
+	craftGoldBtn.Text = "FUSE"
+	craftGoldBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	craftGoldBtn.Font = Enum.Font.GothamBlack
-	craftGoldBtn.TextSize = 11
+	craftGoldBtn.TextSize = 10
 	craftGoldBtn.Parent = actRow
-	addCorner(craftGoldBtn, 7)
+	addCorner(craftGoldBtn, 6)
+	addBorderStroke(craftGoldBtn, Color3.fromRGB(10, 14, 24), 1.8)
+	addTextStroke(craftGoldBtn, 1.4)
 
 	buyDroneSlotBtn.MouseButton1Click:Connect(function()
 		playSFX(sfxUpgrade, 0.40)
@@ -2851,19 +3038,335 @@ do
 		CompanionActionEvent:FireServer("CraftGolden")
 	end)
 
-	-- 3. Drone Fleet Inventory Grid
+	-- Scrolling Showcase Area inside Left Panel (Roll Pods + Owned Drone Fleet Cards)
+	local leftScroll = Instance.new("ScrollingFrame")
+	leftScroll.Name = "LeftShowcaseScroll"
+	leftScroll.Size = UDim2.new(1, -12, 1, -50)
+	leftScroll.Position = UDim2.new(0, 6, 0, 46)
+	leftScroll.BackgroundTransparency = 1
+	leftScroll.BorderSizePixel = 0
+	leftScroll.ScrollBarThickness = 5
+	leftScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	leftScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	leftScroll.Parent = leftGridPanel
+
+	local leftScrollList = Instance.new("UIListLayout")
+	leftScrollList.Padding = UDim.new(0, 8)
+	leftScrollList.SortOrder = Enum.SortOrder.LayoutOrder
+	leftScrollList.Parent = leftScroll
+
+	-- Section 1: 4 Vertical Roll Pod Cards (Styled exactly like the 4 top row cards in the screenshot!)
+	local podSectionRow = Instance.new("Frame")
+	podSectionRow.LayoutOrder = 1
+	podSectionRow.Size = UDim2.new(1, -4, 0, 154)
+	podSectionRow.BackgroundTransparency = 1
+	podSectionRow.Parent = leftScroll
+
+	local podGrid = Instance.new("UIGridLayout")
+	podGrid.CellSize = UDim2.new(0, 118, 0, 148)
+	podGrid.CellPadding = UDim2.new(0, 8, 0, 8)
+	podGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	podGrid.SortOrder = Enum.SortOrder.LayoutOrder
+	podGrid.Parent = podSectionRow
+
+	local podCardPreviewDrones = { "ScrapProbe", "BioPollinator", "SolarSentinel", "OmniHarvester" }
+	local podCardBgColors = {
+		{ Top = Color3.fromRGB(122, 142, 168), Bot = Color3.fromRGB(76, 92, 116) }, -- Slate Grey (like TV Remote)
+		{ Top = Color3.fromRGB(58, 168, 245), Bot = Color3.fromRGB(28, 108, 198) }, -- Sky Blue (like Foam Finger)
+		{ Top = Color3.fromRGB(168, 72, 245), Bot = Color3.fromRGB(108, 32, 188) }, -- Royal Purple (like Toy Brick Burst)
+		{ Top = Color3.fromRGB(255, 205, 52), Bot = Color3.fromRGB(218, 138, 18) }, -- Golden Amber (like Toy UFO)
+	}
+
+	for podIdx, pod in ipairs(PlanetConfig.CompanionPods) do
+		local cTheme = podCardBgColors[podIdx] or podCardBgColors[1]
+		local pBtn = Instance.new("TextButton")
+		pBtn.LayoutOrder = podIdx
+		pBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		pBtn.Text = ""
+		pBtn.AutoButtonColor = false
+		pBtn.Parent = podSectionRow
+		addCorner(pBtn, 12)
+		addBorderStroke(pBtn, Color3.fromRGB(10, 14, 24), 2.5)
+		addGradient(pBtn, cTheme.Top, cTheme.Bot, 90)
+
+		-- Top-Left Red Corner Ribbon Tag (Matches "SALE" tag in screenshot!)
+		local ribbon = Instance.new("TextLabel")
+		ribbon.Size = UDim2.new(0, 56, 0, 20)
+		ribbon.Position = UDim2.new(0, -2, 0, -2)
+		ribbon.BackgroundColor3 = Color3.fromRGB(238, 52, 48)
+		ribbon.Text = "TIER " .. tostring(podIdx)
+		ribbon.TextColor3 = Color3.fromRGB(255, 255, 255)
+		ribbon.Font = Enum.Font.GothamBlack
+		ribbon.TextSize = 11
+		ribbon.ZIndex = 4
+		ribbon.Parent = pBtn
+		addCorner(ribbon, 6)
+		addBorderStroke(ribbon, Color3.fromRGB(12, 14, 22), 2.0)
+		addTextStroke(ribbon, 1.5)
+
+		-- Live 3D ViewportFrame inside the Card
+		local vp = Instance.new("ViewportFrame")
+		vp.Size = UDim2.new(1, -12, 0, 78)
+		vp.Position = UDim2.new(0, 6, 0, 16)
+		vp.BackgroundTransparency = 1
+		vp.Parent = pBtn
+		populateDroneViewport(vp, podCardPreviewDrones[podIdx] or "ScrapProbe", podIdx == 4, 1)
+
+		local pName = Instance.new("TextLabel")
+		pName.Size = UDim2.new(1, -8, 0, 18)
+		pName.Position = UDim2.new(0, 4, 1, -50)
+		pName.BackgroundTransparency = 1
+		pName.Text = pod.Name:gsub("^[^%w]+", "")
+		pName.TextColor3 = Color3.fromRGB(255, 255, 255)
+		pName.Font = Enum.Font.GothamBlack
+		pName.TextSize = 11
+		pName.TextTruncate = Enum.TextTruncate.AtEnd
+		pName.Parent = pBtn
+		addTextStroke(pName, 1.6)
+
+		-- Dark Navy Bottom Cost Pill (Exact match to screenshot's [400], [1,200], [96], [240] pills!)
+		local pricePill = Instance.new("Frame")
+		pricePill.Size = UDim2.new(1, -12, 0, 24)
+		pricePill.Position = UDim2.new(0, 6, 1, -29)
+		pricePill.BackgroundColor3 = Color3.fromRGB(20, 28, 48)
+		pricePill.Parent = pBtn
+		addCorner(pricePill, 7)
+		addBorderStroke(pricePill, Color3.fromRGB(8, 12, 22), 2.0)
+
+		local priceTxt = Instance.new("TextLabel")
+		priceTxt.Size = UDim2.new(1, -6, 1, 0)
+		priceTxt.Position = UDim2.new(0, 3, 0, 0)
+		priceTxt.BackgroundTransparency = 1
+		priceTxt.Text = formatCost(pod.Cost or {})
+		priceTxt.TextColor3 = Color3.fromRGB(255, 232, 95)
+		priceTxt.Font = Enum.Font.GothamBlack
+		priceTxt.TextSize = 10
+		priceTxt.TextTruncate = Enum.TextTruncate.AtEnd
+		priceTxt.Parent = pricePill
+		addTextStroke(priceTxt, 1.4)
+
+		pBtn.MouseButton1Click:Connect(function()
+			playSFX(sfxClick, 0.30)
+			selectedShowcaseItem = { Kind = "Pod", Id = pod.Id, Uid = nil }
+			if updateDroneSpotlightPanel then
+				updateDroneSpotlightPanel()
+			end
+		end)
+	end
+
+	-- Section 2 Header: Owned Drone Hangar
+	local hangarHdr = Instance.new("TextLabel")
+	hangarHdr.LayoutOrder = 2
+	hangarHdr.Size = UDim2.new(1, -12, 0, 20)
+	hangarHdr.BackgroundTransparency = 1
+	hangarHdr.Text = "🛸 YOUR OWNED DRONES (CLICK A CARD TO INSPECT, EQUIP OR LEVEL UP)"
+	hangarHdr.TextColor3 = Color3.fromRGB(255, 240, 125)
+	hangarHdr.Font = Enum.Font.GothamBlack
+	hangarHdr.TextSize = 11
+	hangarHdr.TextXAlignment = Enum.TextXAlignment.Left
+	hangarHdr.Parent = leftScroll
+	addTextStroke(hangarHdr, 1.5)
+
+	-- Section 3: Owned Drone Cards Grid (Vertical Rarity Cards with 3D ViewportFrames!)
 	droneInventoryGridFrame = Instance.new("Frame")
 	droneInventoryGridFrame.LayoutOrder = 3
-	droneInventoryGridFrame.Size = UDim2.new(1, -16, 0, 220)
+	droneInventoryGridFrame.Size = UDim2.new(1, -4, 0, 160)
 	droneInventoryGridFrame.AutomaticSize = Enum.AutomaticSize.Y
 	droneInventoryGridFrame.BackgroundTransparency = 1
-	droneInventoryGridFrame.Parent = dronesPage
+	droneInventoryGridFrame.Parent = leftScroll
 
 	local invGrid = Instance.new("UIGridLayout")
-	invGrid.CellSize = UDim2.new(0, 200, 0, 138)
-	invGrid.CellPadding = UDim2.new(0, 10, 0, 10)
+	invGrid.CellSize = UDim2.new(0, 118, 0, 148)
+	invGrid.CellPadding = UDim2.new(0, 8, 0, 8)
 	invGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	invGrid.Parent = droneInventoryGridFrame
+
+	-- RIGHT 38%: Spotlight Inspector Panel (Exact match to "Foam Finger" circular spotlight on the right of screenshot!)
+	local rightSpotlightPanel = Instance.new("Frame")
+	rightSpotlightPanel.Name = "RightSpotlightInspector"
+	rightSpotlightPanel.Size = UDim2.new(0.38, -4, 1, 0)
+	rightSpotlightPanel.Position = UDim2.new(0.62, 4, 0, 0)
+	rightSpotlightPanel.BackgroundColor3 = Color3.fromRGB(42, 118, 228)
+	rightSpotlightPanel.BackgroundTransparency = 0.15
+	rightSpotlightPanel.Parent = dronesPage
+	addCorner(rightSpotlightPanel, 14)
+	addBorderStroke(rightSpotlightPanel, Color3.fromRGB(20, 62, 142), 2.0)
+
+	-- Big Dark-Blue Circular Spotlight Backdrop (`148x148` Circle)
+	local spotlightCircle = Instance.new("Frame")
+	spotlightCircle.Name = "SpotlightCircle"
+	spotlightCircle.Size = UDim2.new(0, 148, 0, 148)
+	spotlightCircle.AnchorPoint = Vector2.new(0.5, 0)
+	spotlightCircle.Position = UDim2.new(0.5, 0, 0, 12)
+	spotlightCircle.BackgroundColor3 = Color3.fromRGB(26, 74, 168)
+	spotlightCircle.Parent = rightSpotlightPanel
+	addCorner(spotlightCircle, 74)
+	addBorderStroke(spotlightCircle, Color3.fromRGB(16, 48, 118), 2.5)
+
+	local spotlightViewport = Instance.new("ViewportFrame")
+	spotlightViewport.Size = UDim2.new(1, 16, 1, 16)
+	spotlightViewport.Position = UDim2.new(0, -8, 0, -8)
+	spotlightViewport.BackgroundTransparency = 1
+	spotlightViewport.Parent = spotlightCircle
+
+	-- Selected Item Title ("Foam Finger" -> Selected Pod or Drone Name)
+	local spotTitleLbl = Instance.new("TextLabel")
+	spotTitleLbl.Size = UDim2.new(1, -16, 0, 26)
+	spotTitleLbl.Position = UDim2.new(0, 8, 0, 166)
+	spotTitleLbl.BackgroundTransparency = 1
+	spotTitleLbl.Text = "Rust-Bit Pod"
+	spotTitleLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+	spotTitleLbl.Font = Enum.Font.GothamBlack
+	spotTitleLbl.TextSize = 20
+	spotTitleLbl.TextTruncate = Enum.TextTruncate.AtEnd
+	spotTitleLbl.Parent = rightSpotlightPanel
+	addTextStroke(spotTitleLbl, 2.2)
+
+	-- Selected Item Rarity / Subtitle ("RARE HITTER" -> "TIER 1 RESOURCE POD" or "MYTHIC DRONE • LV. 5")
+	local spotRarityLbl = Instance.new("TextLabel")
+	spotRarityLbl.Size = UDim2.new(1, -16, 0, 18)
+	spotRarityLbl.Position = UDim2.new(0, 8, 0, 192)
+	spotRarityLbl.BackgroundTransparency = 1
+	spotRarityLbl.Text = "RESOURCE ROLL POD"
+	spotRarityLbl.TextColor3 = Color3.fromRGB(125, 232, 255)
+	spotRarityLbl.Font = Enum.Font.GothamBlack
+	spotRarityLbl.TextSize = 12
+	spotRarityLbl.Parent = rightSpotlightPanel
+	addTextStroke(spotRarityLbl, 1.6)
+
+	-- Selected Item Description / Stats Box
+	local spotDescLbl = Instance.new("TextLabel")
+	spotDescLbl.Size = UDim2.new(1, -24, 0, 62)
+	spotDescLbl.Position = UDim2.new(0, 12, 0, 214)
+	spotDescLbl.BackgroundTransparency = 1
+	spotDescLbl.Text = "Rolls 1 random mining drone using Titanium Ore & Plasma Flux."
+	spotDescLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+	spotDescLbl.Font = Enum.Font.GothamBold
+	spotDescLbl.TextSize = 12
+	spotDescLbl.TextWrapped = true
+	spotDescLbl.Parent = rightSpotlightPanel
+	addTextStroke(spotDescLbl, 1.6)
+
+	-- Secondary Action Button (e.g., "⚡ ROLL 3x" or "⬆️ LEVEL UP DRONE")
+	local spotSecondaryBtn = Instance.new("TextButton")
+	spotSecondaryBtn.Size = UDim2.new(1, -28, 0, 38)
+	spotSecondaryBtn.Position = UDim2.new(0, 14, 1, -104)
+	spotSecondaryBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	spotSecondaryBtn.Text = "⚡ ROLL 3x DRONES"
+	spotSecondaryBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	spotSecondaryBtn.Font = Enum.Font.GothamBlack
+	spotSecondaryBtn.TextSize = 13
+	spotSecondaryBtn.Parent = rightSpotlightPanel
+	addCorner(spotSecondaryBtn, 10)
+	addBorderStroke(spotSecondaryBtn, Color3.fromRGB(10, 14, 24), 2.5)
+	addGradient(spotSecondaryBtn, Color3.fromRGB(255, 195, 45), Color3.fromRGB(214, 122, 18), 90)
+	addTextStroke(spotSecondaryBtn, 1.8)
+
+	-- Primary Big Lime-Green Beveled Action Button at Bottom (Matches "BUY 1,200" button in screenshot!)
+	local spotPrimaryBtn = Instance.new("TextButton")
+	spotPrimaryBtn.Size = UDim2.new(1, -28, 0, 50)
+	spotPrimaryBtn.Position = UDim2.new(0, 14, 1, -58)
+	spotPrimaryBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	spotPrimaryBtn.Text = "ROLL 1x (25 ⛏)"
+	spotPrimaryBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	spotPrimaryBtn.Font = Enum.Font.GothamBlack
+	spotPrimaryBtn.TextSize = 17
+	spotPrimaryBtn.Parent = rightSpotlightPanel
+	addCorner(spotPrimaryBtn, 12)
+	addBorderStroke(spotPrimaryBtn, Color3.fromRGB(10, 16, 10), 3.0)
+	addGradient(spotPrimaryBtn, Color3.fromRGB(108, 248, 56), Color3.fromRGB(46, 188, 20), 90)
+	addTextStroke(spotPrimaryBtn, 2.2)
+
+	updateDroneSpotlightPanel = function()
+		local ownedDrones = currentState.Companions or {}
+		local res = currentState.Resources or {}
+
+		if selectedShowcaseItem.Kind == "Drone" and selectedShowcaseItem.Uid then
+			local foundEntry: any = nil
+			for _, entry in ipairs(ownedDrones) do
+				if entry.Uid == selectedShowcaseItem.Uid then
+					foundEntry = entry
+					break
+				end
+			end
+			if foundEntry then
+				local cDef = PlanetConfig.Companions[foundEntry.Id]
+				if cDef then
+					local isGold = (foundEntry.IsGolden == true) or (foundEntry.Golden == true)
+					local lvl = foundEntry.Level or 1
+					local stats = PlanetConfig.GetDroneStats(foundEntry.Id, lvl, isGold)
+					local rInfo = PlanetConfig.DroneRarities[cDef.Rarity]
+					local rCol = isGold and Color3.fromRGB(255, 215, 65) or ((rInfo and rInfo.Color) or cDef.Color)
+
+					spotlightViewportModel, spotlightViewportCam = populateDroneViewport(spotlightViewport, foundEntry.Id, isGold, lvl)
+					spotTitleLbl.Text = (isGold and "★ " or "") .. cDef.Name
+					spotRarityLbl.Text = string.format("%s DRONE  •  LV. %d / %d", string.upper(cDef.Rarity), lvl, PlanetConfig.MaxDroneLevel or 25)
+					spotRarityLbl.TextColor3 = rCol
+					spotDescLbl.Text = string.format(
+						"🔨 %s Drill Power  •  ⚔️ %s DMG (%.2fx/s)\n📈 %.2fx All-Yield  •  💎 %.2fx Star Gems",
+						PlanetConfig.FormatNumber(stats.DrillPower),
+						PlanetConfig.FormatNumber(stats.Damage),
+						stats.DrillSpeed,
+						stats.YieldMult,
+						stats.GemMult
+					)
+
+					spotPrimaryBtn.Text = foundEntry.Equipped and "✓ EQUIPPED (UNEQUIP)" or "EQUIP DRONE"
+					local maxLvl = PlanetConfig.MaxDroneLevel or 25
+					if lvl >= maxLvl then
+						spotSecondaryBtn.Text = "✓ MAX LEVEL (" .. tostring(maxLvl) .. ")"
+					else
+						local upCost = PlanetConfig.GetDroneLevelUpCost(foundEntry.Id, lvl)
+						spotSecondaryBtn.Text = "⬆️ LV." .. tostring(lvl + 1) .. " (" .. formatCost(upCost) .. ")"
+					end
+					return
+				end
+			end
+		end
+
+		-- Default / Pod Selection
+		local podIdx = 1
+		local chosenPod = PlanetConfig.CompanionPods[1]
+		for i, p in ipairs(PlanetConfig.CompanionPods) do
+			if p.Id == selectedShowcaseItem.Id then
+				chosenPod = p
+				podIdx = i
+				break
+			end
+		end
+		if chosenPod then
+			local previewId = podCardPreviewDrones[podIdx] or "ScrapProbe"
+			spotlightViewportModel, spotlightViewportCam = populateDroneViewport(spotlightViewport, previewId, podIdx == 4, 1)
+			spotTitleLbl.Text = chosenPod.Name:gsub("^[^%w]+", "")
+			spotRarityLbl.Text = string.format("TIER %d RESOURCE POD (NO GEMS REQUIRED)", podIdx)
+			spotRarityLbl.TextColor3 = chosenPod.Color
+			spotDescLbl.Text = chosenPod.Description .. "\nCost: " .. formatCost(chosenPod.Cost or {})
+			spotPrimaryBtn.Text = "ROLL 1x (" .. formatCost(chosenPod.Cost or {}) .. ")"
+			spotSecondaryBtn.Text = "⚡ ROLL 3x DRONES"
+		end
+	end
+
+	spotPrimaryBtn.MouseButton1Click:Connect(function()
+		if selectedShowcaseItem.Kind == "Drone" and selectedShowcaseItem.Uid then
+			playSFX(sfxClick, 0.35)
+			CompanionActionEvent:FireServer("ToggleEquip", selectedShowcaseItem.Uid)
+		else
+			playSFX(sfxEvolve, 0.44)
+			HatchCompanionPodEvent:FireServer(selectedShowcaseItem.Id, false)
+		end
+	end)
+
+	spotSecondaryBtn.MouseButton1Click:Connect(function()
+		if selectedShowcaseItem.Kind == "Drone" and selectedShowcaseItem.Uid then
+			playSFX(sfxUpgrade, 0.38)
+			CompanionActionEvent:FireServer("LevelUp", selectedShowcaseItem.Uid)
+		else
+			playSFX(sfxEvolve, 0.48)
+			HatchCompanionPodEvent:FireServer(selectedShowcaseItem.Id, true)
+		end
+	end)
+
+	updateDroneSpotlightPanel()
 end
 
 -- ============================================================================
@@ -2881,11 +3384,12 @@ do
 	giftHdr.Size = UDim2.new(1, -16, 0, 22)
 	giftHdr.BackgroundTransparency = 1
 	giftHdr.Text = "SESSION PLAYTIME REWARDS (RESET EACH SESSION)"
-	giftHdr.TextColor3 = Color3.fromRGB(255, 220, 85)
+	giftHdr.TextColor3 = Color3.fromRGB(255, 235, 95)
 	giftHdr.Font = Enum.Font.GothamBlack
 	giftHdr.TextSize = 13
 	giftHdr.TextXAlignment = Enum.TextXAlignment.Left
 	giftHdr.Parent = boostsRewardsPage
+	addTextStroke(giftHdr, 1.5)
 
 	local giftGridFrame = Instance.new("Frame")
 	giftGridFrame.Size = UDim2.new(1, -16, 0, 168)
@@ -2893,17 +3397,17 @@ do
 	giftGridFrame.Parent = boostsRewardsPage
 
 	local gGrid = Instance.new("UIGridLayout")
-	gGrid.CellSize = UDim2.new(0, 268, 0, 78)
+	gGrid.CellSize = UDim2.new(0, 258, 0, 78)
 	gGrid.CellPadding = UDim2.new(0, 10, 0, 10)
 	gGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	gGrid.Parent = giftGridFrame
 
 	for _, gDef in ipairs(PlanetConfig.PlaytimeRewards) do
 		local gCard = Instance.new("Frame")
-		gCard.BackgroundColor3 = Color3.fromRGB(16, 22, 40)
+		gCard.BackgroundColor3 = Color3.fromRGB(20, 32, 64)
 		gCard.Parent = giftGridFrame
 		addCorner(gCard, 10)
-		addBorderStroke(gCard, Color3.fromRGB(245, 195, 65), 1.2)
+		addBorderStroke(gCard, Color3.fromRGB(10, 14, 24), 2.2)
 
 		local gt = Instance.new("TextLabel")
 		gt.Size = UDim2.new(1, -110, 0, 20)
@@ -2915,6 +3419,7 @@ do
 		gt.TextSize = 12
 		gt.TextXAlignment = Enum.TextXAlignment.Left
 		gt.Parent = gCard
+		addTextStroke(gt, 1.4)
 
 		local gr = Instance.new("TextLabel")
 		gr.Size = UDim2.new(1, -110, 0, 36)
@@ -2922,7 +3427,7 @@ do
 		gr.BackgroundTransparency = 1
 		gr.Text = gDef.RewardText or "Free Session Gift"
 		gr.TextColor3 = Color3.fromRGB(125, 240, 185)
-		gr.Font = Enum.Font.GothamMedium
+		gr.Font = Enum.Font.GothamBold
 		gr.TextSize = 10
 		gr.TextWrapped = true
 		gr.TextXAlignment = Enum.TextXAlignment.Left
@@ -2938,6 +3443,8 @@ do
 		gBtn.TextSize = 12
 		gBtn.Parent = gCard
 		addCorner(gBtn, 8)
+		addBorderStroke(gBtn, Color3.fromRGB(10, 14, 24), 2.0)
+		addTextStroke(gBtn, 1.5)
 
 		gBtn.MouseButton1Click:Connect(function()
 			playSFX(sfxUpgrade, 0.4)
@@ -2951,11 +3458,12 @@ do
 	boostHdr.Size = UDim2.new(1, -16, 0, 22)
 	boostHdr.BackgroundTransparency = 1
 	boostHdr.Text = "TIMED OVERDRIVE BOOSTERS (STACK DURATION WITH STAR GEMS)"
-	boostHdr.TextColor3 = Color3.fromRGB(95, 225, 255)
+	boostHdr.TextColor3 = Color3.fromRGB(255, 255, 255)
 	boostHdr.Font = Enum.Font.GothamBlack
 	boostHdr.TextSize = 13
 	boostHdr.TextXAlignment = Enum.TextXAlignment.Left
 	boostHdr.Parent = boostsRewardsPage
+	addTextStroke(boostHdr, 1.5)
 
 	local boostGridFrame = Instance.new("Frame")
 	boostGridFrame.Size = UDim2.new(1, -16, 0, 178)
@@ -2963,17 +3471,17 @@ do
 	boostGridFrame.Parent = boostsRewardsPage
 
 	local bGrid = Instance.new("UIGridLayout")
-	bGrid.CellSize = UDim2.new(0, 405, 0, 82)
+	bGrid.CellSize = UDim2.new(0, 390, 0, 82)
 	bGrid.CellPadding = UDim2.new(0, 12, 0, 10)
 	bGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	bGrid.Parent = boostGridFrame
 
 	for _, bDef in ipairs(PlanetConfig.Boosters) do
 		local bCard = Instance.new("Frame")
-		bCard.BackgroundColor3 = Color3.fromRGB(16, 22, 40)
+		bCard.BackgroundColor3 = Color3.fromRGB(20, 32, 64)
 		bCard.Parent = boostGridFrame
 		addCorner(bCard, 10)
-		addBorderStroke(bCard, bDef.Color, 1.2)
+		addBorderStroke(bCard, Color3.fromRGB(10, 14, 24), 2.2)
 
 		local bt = Instance.new("TextLabel")
 		bt.Size = UDim2.new(1, -150, 0, 20)
@@ -2985,14 +3493,15 @@ do
 		bt.TextSize = 13
 		bt.TextXAlignment = Enum.TextXAlignment.Left
 		bt.Parent = bCard
+		addTextStroke(bt, 1.4)
 
 		local bd = Instance.new("TextLabel")
 		bd.Size = UDim2.new(1, -150, 0, 24)
 		bd.Position = UDim2.new(0, 12, 0, 28)
 		bd.BackgroundTransparency = 1
 		bd.Text = bDef.Description
-		bd.TextColor3 = Color3.fromRGB(205, 220, 245)
-		bd.Font = Enum.Font.GothamMedium
+		bd.TextColor3 = Color3.fromRGB(220, 232, 255)
+		bd.Font = Enum.Font.GothamBold
 		bd.TextSize = 10
 		bd.TextWrapped = true
 		bd.TextXAlignment = Enum.TextXAlignment.Left
@@ -3012,13 +3521,15 @@ do
 		local bBtn = Instance.new("TextButton")
 		bBtn.Size = UDim2.new(0, 128, 0, 40)
 		bBtn.Position = UDim2.new(1, -138, 0.5, -20)
-		bBtn.BackgroundColor3 = bDef.Color
+		bBtn.BackgroundColor3 = Color3.fromRGB(88, 232, 44)
 		bBtn.Text = string.format("💎 %d GEMS", bDef.GemCost)
-		bBtn.TextColor3 = Color3.fromRGB(10, 14, 24)
+		bBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 		bBtn.Font = Enum.Font.GothamBlack
 		bBtn.TextSize = 12
 		bBtn.Parent = bCard
 		addCorner(bBtn, 8)
+		addBorderStroke(bBtn, Color3.fromRGB(10, 14, 24), 2.0)
+		addTextStroke(bBtn, 1.6)
 
 		bBtn.MouseButton1Click:Connect(function()
 			playSFX(sfxUpgrade, 0.4)
@@ -3030,26 +3541,27 @@ do
 
 	local codeCard = Instance.new("Frame")
 	codeCard.Size = UDim2.new(1, -16, 0, 52)
-	codeCard.BackgroundColor3 = Color3.fromRGB(16, 22, 40)
+	codeCard.BackgroundColor3 = Color3.fromRGB(20, 32, 64)
 	codeCard.Parent = boostsRewardsPage
 	addCorner(codeCard, 10)
-	addBorderStroke(codeCard, Color3.fromRGB(215, 115, 250), 1.2)
+	addBorderStroke(codeCard, Color3.fromRGB(10, 14, 24), 2.2)
 
 	local codeLbl = Instance.new("TextLabel")
-	codeLbl.Size = UDim2.new(0, 350, 1, 0)
+	codeLbl.Size = UDim2.new(0, 340, 1, 0)
 	codeLbl.Position = UDim2.new(0, 14, 0, 0)
 	codeLbl.BackgroundTransparency = 1
-	codeLbl.Text = "PROMO CODES // COSMIC2026, STARFARER, GALAXY, GEMS500"
-	codeLbl.TextColor3 = Color3.fromRGB(235, 175, 255)
-	codeLbl.Font = Enum.Font.GothamBold
+	codeLbl.Text = "CODES // COSMIC2026, STARFARER, GALAXY, GEMS500"
+	codeLbl.TextColor3 = Color3.fromRGB(255, 230, 105)
+	codeLbl.Font = Enum.Font.GothamBlack
 	codeLbl.TextSize = 11
 	codeLbl.TextXAlignment = Enum.TextXAlignment.Left
 	codeLbl.Parent = codeCard
+	addTextStroke(codeLbl, 1.4)
 
 	local codeBox = Instance.new("TextBox")
-	codeBox.Size = UDim2.new(0, 260, 0, 34)
-	codeBox.Position = UDim2.new(1, -430, 0.5, -17)
-	codeBox.BackgroundColor3 = Color3.fromRGB(10, 14, 26)
+	codeBox.Size = UDim2.new(0, 240, 0, 34)
+	codeBox.Position = UDim2.new(1, -405, 0.5, -17)
+	codeBox.BackgroundColor3 = Color3.fromRGB(12, 18, 34)
 	codeBox.PlaceholderText = "Enter Code (e.g. COSMIC2026)"
 	codeBox.Text = ""
 	codeBox.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -3057,18 +3569,20 @@ do
 	codeBox.TextSize = 12
 	codeBox.Parent = codeCard
 	addCorner(codeBox, 6)
-	addBorderStroke(codeBox, Color3.fromRGB(95, 155, 235), 1.0)
+	addBorderStroke(codeBox, Color3.fromRGB(8, 12, 22), 1.8)
 
 	local redeemBtn = Instance.new("TextButton")
 	redeemBtn.Size = UDim2.new(0, 145, 0, 34)
-	redeemBtn.Position = UDim2.new(1, -158, 0.5, -17)
-	redeemBtn.BackgroundColor3 = Color3.fromRGB(45, 195, 115)
+	redeemBtn.Position = UDim2.new(1, -154, 0.5, -17)
+	redeemBtn.BackgroundColor3 = Color3.fromRGB(88, 232, 44)
 	redeemBtn.Text = "REDEEM CODE"
 	redeemBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	redeemBtn.Font = Enum.Font.GothamBlack
 	redeemBtn.TextSize = 12
 	redeemBtn.Parent = codeCard
 	addCorner(redeemBtn, 6)
+	addBorderStroke(redeemBtn, Color3.fromRGB(10, 14, 24), 2.0)
+	addTextStroke(redeemBtn, 1.6)
 
 	redeemBtn.MouseButton1Click:Connect(function()
 		if #codeBox.Text > 0 then
@@ -3080,23 +3594,23 @@ do
 end
 
 -- ============================================================================
--- 8. LEFT-SIDE COMMAND NAVIGATION DOCK & PROXIMITY MACHINE / STATION PROMPT
+-- 8. LEFT-SIDE 2x4 ILLUSTRATED BEVELED BUTTON GRID (Matching SHOP / LOCKER / QUESTS / DAILY / AFK / SETTINGS)
 -- ============================================================================
 local proximityPromptBtn = Instance.new("TextButton")
 proximityPromptBtn.Name = "MachineProximityPrompt"
-proximityPromptBtn.Size = UDim2.new(0, 440, 0, 38)
+proximityPromptBtn.Size = UDim2.new(0, 440, 0, 42)
 proximityPromptBtn.AnchorPoint = Vector2.new(0.5, 1)
-proximityPromptBtn.Position = UDim2.new(0.5, 0, 1, -24)
-proximityPromptBtn.BackgroundColor3 = Color3.fromRGB(10, 15, 28)
-proximityPromptBtn.BackgroundTransparency = 0.10
+proximityPromptBtn.Position = UDim2.new(0.5, 0, 1, -22)
+proximityPromptBtn.BackgroundColor3 = Color3.fromRGB(24, 38, 76)
 proximityPromptBtn.Text = "[E] ACCESS TERMINAL"
-proximityPromptBtn.TextColor3 = Color3.fromRGB(240, 246, 255)
+proximityPromptBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 proximityPromptBtn.Font = Enum.Font.GothamBlack
-proximityPromptBtn.TextSize = 13
+proximityPromptBtn.TextSize = 14
 proximityPromptBtn.Visible = false
 proximityPromptBtn.Parent = inGameHUD
-addCorner(proximityPromptBtn, 8)
-local proxStroke = addBorderStroke(proximityPromptBtn, Color3.fromRGB(85, 210, 255), 1.4)
+addCorner(proximityPromptBtn, 10)
+local proxStroke = addBorderStroke(proximityPromptBtn, Color3.fromRGB(10, 14, 24), 2.8)
+addTextStroke(proximityPromptBtn, 1.8)
 
 local nearestHubMachineId: string? = nil
 local nearestSpaceStationId: string? = nil
@@ -3110,7 +3624,7 @@ local function triggerNearestMachineUI()
 					playSFX(sfxEvolve, 0.45)
 					UnlockSpaceStationEvent:FireServer(st.Id)
 				else
-					toggleTab("WarpAscend", "DEEP-SPACE STATIONS, WARP GATES & ASCENSION")
+					toggleTab("WarpAscend", "STATIONS & WARP")
 				end
 				return
 			end
@@ -3120,9 +3634,9 @@ local function triggerNearestMachineUI()
 		return
 	end
 	if nearestHubMachineId == "WarpGate" then
-		toggleTab("WarpAscend", "DEEP-SPACE STATIONS, WARP GATES & ASCENSION")
+		toggleTab("WarpAscend", "STATIONS & WARP")
 	elseif nearestHubMachineId == "DroneBay" then
-		toggleTab("Drones", "ORBITAL DRONE FOUNDRY // ROLL, EQUIP & LEVEL UP")
+		toggleTab("Drones", "DRONE SHOP")
 	else
 		openMachineModal(nearestHubMachineId)
 	end
@@ -3131,109 +3645,126 @@ end
 proximityPromptBtn.MouseButton1Click:Connect(triggerNearestMachineUI)
 
 local bottomLeftDock = Instance.new("Frame")
-bottomLeftDock.Name = "LeftCommandDock"
-bottomLeftDock.Size = UDim2.new(0, 292, 0, 184)
-bottomLeftDock.Position = UDim2.new(0, 14, 0, 354)
-bottomLeftDock.BackgroundColor3 = Color3.fromRGB(9, 13, 24)
-bottomLeftDock.BackgroundTransparency = 0.14
+bottomLeftDock.Name = "LeftBeveledButtonGrid"
+bottomLeftDock.Size = UDim2.new(0, 212, 0, 238)
+bottomLeftDock.Position = UDim2.new(0, 16, 0, 146)
+bottomLeftDock.BackgroundTransparency = 1
 bottomLeftDock.Parent = inGameHUD
-addCorner(bottomLeftDock, 10)
-addBorderStroke(bottomLeftDock, Color3.fromRGB(55, 115, 190), 1.2)
 
 local dockGrid = Instance.new("UIGridLayout")
-dockGrid.CellSize = UDim2.new(0, 136, 0, 38)
-dockGrid.CellPadding = UDim2.new(0, 8, 0, 6)
-dockGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
-dockGrid.VerticalAlignment = Enum.VerticalAlignment.Center
+dockGrid.CellSize = UDim2.new(0, 102, 0, 52)
+dockGrid.CellPadding = UDim2.new(0, 8, 0, 8)
+dockGrid.HorizontalAlignment = Enum.HorizontalAlignment.Left
+dockGrid.VerticalAlignment = Enum.VerticalAlignment.Top
 dockGrid.SortOrder = Enum.SortOrder.LayoutOrder
 dockGrid.Parent = bottomLeftDock
 
 local dockBtnOrder = 0
-local function makeSimulatorActionBtn(icon: string, label: string, accentC: Color3, _unusedC: Color3, onClick: () -> ())
+local function makeSimulatorActionBtn(
+	fallbackEmoji: string,
+	imageAsset: string,
+	label: string,
+	accentC: Color3,
+	onClick: () -> ()
+)
 	dockBtnOrder += 1
 	local btn = Instance.new("TextButton")
 	btn.LayoutOrder = dockBtnOrder
-	btn.BackgroundColor3 = Color3.fromRGB(16, 22, 40)
-	btn.BackgroundTransparency = 0.08
+	btn.BackgroundColor3 = Color3.fromRGB(27, 45, 88)
 	btn.Text = ""
 	btn.Parent = bottomLeftDock
-	addCorner(btn, 6)
-	local bStroke = addBorderStroke(btn, Color3.fromRGB(45, 78, 135), 1.0)
+	addCorner(btn, 12)
+	local bStroke = addBorderStroke(btn, Color3.fromRGB(8, 12, 22), 3.0)
+	addGradient(btn, Color3.fromRGB(44, 72, 136), Color3.fromRGB(24, 38, 76), 90)
 
-	local strip = Instance.new("Frame")
-	strip.Size = UDim2.new(0, 3, 1, -8)
-	strip.Position = UDim2.new(0, 4, 0, 4)
-	strip.BackgroundColor3 = accentC
-	strip.BorderSizePixel = 0
-	strip.Parent = btn
-	addCorner(strip, 2)
+	local topGloss = Instance.new("Frame")
+	topGloss.Size = UDim2.new(1, -10, 0.42, 0)
+	topGloss.Position = UDim2.new(0, 5, 0, 3)
+	topGloss.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	topGloss.BackgroundTransparency = 0.88
+	topGloss.BorderSizePixel = 0
+	topGloss.Parent = btn
+	addCorner(topGloss, 8)
 
-	local ic = Instance.new("TextLabel")
-	ic.Size = UDim2.new(0, 24, 1, 0)
-	ic.Position = UDim2.new(0, 10, 0, 0)
-	ic.BackgroundTransparency = 1
-	ic.Text = icon
-	ic.TextColor3 = accentC
-	ic.Font = Enum.Font.GothamBlack
-	ic.TextSize = 15
-	ic.Parent = btn
+	-- Fallback emoji badge behind the AI-generated ImageLabel so both Studio & published clients look crisp
+	local emojiBg = Instance.new("TextLabel")
+	emojiBg.Size = UDim2.new(0, 36, 0, 36)
+	emojiBg.Position = UDim2.new(0, 5, 0.5, -18)
+	emojiBg.BackgroundTransparency = 1
+	emojiBg.Text = fallbackEmoji
+	emojiBg.TextSize = 22
+	emojiBg.Font = Enum.Font.GothamBlack
+	emojiBg.Parent = btn
+
+	local iconImg = Instance.new("ImageLabel")
+	iconImg.Size = UDim2.new(0, 38, 0, 38)
+	iconImg.Position = UDim2.new(0, 4, 0.5, -19)
+	iconImg.BackgroundTransparency = 1
+	iconImg.Image = imageAsset
+	iconImg.ScaleType = Enum.ScaleType.Fit
+	iconImg.ZIndex = 2
+	iconImg.Parent = btn
+	addCorner(iconImg, 8)
 
 	local lb = Instance.new("TextLabel")
-	lb.Size = UDim2.new(1, -38, 1, 0)
-	lb.Position = UDim2.new(0, 35, 0, 0)
+	lb.Size = UDim2.new(1, -46, 1, 0)
+	lb.Position = UDim2.new(0, 44, 0, 0)
 	lb.BackgroundTransparency = 1
 	lb.Text = label
-	lb.TextColor3 = Color3.fromRGB(235, 243, 255)
+	lb.TextColor3 = Color3.fromRGB(255, 255, 255)
 	lb.Font = Enum.Font.GothamBlack
 	lb.TextSize = 11
+	lb.TextWrapped = true
 	lb.TextXAlignment = Enum.TextXAlignment.Left
 	lb.Parent = btn
+	addTextStroke(lb, 1.8)
 
 	btn.MouseEnter:Connect(function()
 		playSFX(sfxHover, 0.08, 0.06)
-		btn.BackgroundColor3 = Color3.fromRGB(24, 34, 62)
 		bStroke.Color = accentC
 	end)
 	btn.MouseLeave:Connect(function()
-		btn.BackgroundColor3 = Color3.fromRGB(16, 22, 40)
-		bStroke.Color = Color3.fromRGB(45, 78, 135)
+		bStroke.Color = Color3.fromRGB(8, 12, 22)
 	end)
 	btn.MouseButton1Click:Connect(onClick)
 end
 
-makeSimulatorActionBtn("🛸", "DRONES", Color3.fromRGB(75, 225, 255), Color3.fromRGB(25, 145, 115), function()
-	toggleTab("Drones", "ORBITAL DRONE FOUNDRY // ROLL, EQUIP & LEVEL UP")
+makeSimulatorActionBtn("🛸", CUSTOM_UI_ICONS.Drones, "DRONES", Color3.fromRGB(88, 232, 44), function()
+	toggleTab("Drones", "DRONE SHOP")
 end)
 
-makeSimulatorActionBtn("⬆️", "UPGRADES", Color3.fromRGB(250, 200, 65), Color3.fromRGB(205, 130, 18), function()
-	toggleTab("PlanetValue", "PLANETARY SYSTEMS & SCALE UPGRADES")
+makeSimulatorActionBtn("🛒", CUSTOM_UI_ICONS.Shop, "SHOP", Color3.fromRGB(255, 205, 55), function()
+	toggleTab("PlanetValue", "PLANET UPGRADES")
 end)
 
-makeSimulatorActionBtn("⚙️", "MACHINES", Color3.fromRGB(95, 240, 165), Color3.fromRGB(25, 145, 115), function()
-	openMachineModal(nil)
+makeSimulatorActionBtn("📜", CUSTOM_UI_ICONS.Quests, "QUESTS", Color3.fromRGB(255, 215, 75), function()
+	playSFX(sfxClick, 0.28)
+	topInfoPinned = not topInfoPinned
+	updateTopTelemetryVisibility()
 end)
 
-makeSimulatorActionBtn("🛰️", "STATIONS", Color3.fromRGB(245, 105, 205), Color3.fromRGB(165, 30, 125), function()
-	toggleTab("WarpAscend", "DEEP-SPACE STATIONS, WARP GATES & ASCENSION")
+makeSimulatorActionBtn("🛰️", CUSTOM_UI_ICONS.Stations, "STATIONS", Color3.fromRGB(245, 105, 205), function()
+	toggleTab("WarpAscend", "STATIONS & WARP")
 end)
 
-makeSimulatorActionBtn("🧬", "EVOLVE", Color3.fromRGB(190, 110, 255), Color3.fromRGB(115, 35, 200), function()
-	toggleTab("Evolution", "SPECIES EVOLUTION TREE (4 SPECIALIZED PATHS)")
+makeSimulatorActionBtn("🧬", CUSTOM_UI_ICONS.Evolve, "EVOLVE", Color3.fromRGB(190, 110, 255), function()
+	toggleTab("Evolution", "EVOLUTION TREE")
 end)
 
-makeSimulatorActionBtn("🎁", "BOOSTS", Color3.fromRGB(255, 150, 65), Color3.fromRGB(195, 65, 18), function()
-	toggleTab("BoostsRewards", "PLAYTIME GIFTS, OVERDRIVE BOOSTERS & CODES")
-end)
-
-makeSimulatorActionBtn("🎨", "CUSTOMIZE", Color3.fromRGB(110, 185, 255), Color3.fromRGB(45, 115, 200), function()
+makeSimulatorActionBtn("🎨", CUSTOM_UI_ICONS.Customize, "CUSTOMIZE", Color3.fromRGB(110, 215, 255), function()
 	playSFX(sfxClick, 0.28)
 	modalFrame.Visible = false
-	currentState.HasCompletedSetup = false
+	activeTab = nil
+	isCustomizingOverlayOpen = true
 	switchMainMenuTab("Customize")
 	refreshUI()
 end)
 
-makeSimulatorActionBtn("🌀", "HUB WARP", Color3.fromRGB(120, 245, 205), Color3.fromRGB(35, 165, 130), function()
+makeSimulatorActionBtn("⚙️", CUSTOM_UI_ICONS.Shop, "MACHINES", Color3.fromRGB(95, 240, 165), function()
+	openMachineModal(nil)
+end)
+
+makeSimulatorActionBtn("🌀", CUSTOM_UI_ICONS.Stations, "HUB WARP", Color3.fromRGB(120, 245, 205), function()
 	playSFX(sfxLaunch, 0.35)
 	localPlanetPos = HUB_SPAWN_POS
 	localVelocity = Vector3.zero
@@ -3462,7 +3993,7 @@ beamFXFolder.Parent = Workspace
 
 local function rebuildOrbitingDrones()
 	local owned = currentState.Companions or currentState.OwnedCompanions or {}
-	local sigParts = {}
+	local sigParts = { tostring(is2DMenuActive()) }
 	for _, entry in ipairs(owned) do
 		if entry.Equipped then
 			local isGold = (entry.IsGolden == true) or (entry.Golden == true)
@@ -3483,7 +4014,7 @@ local function rebuildOrbitingDrones()
 	end
 	table.clear(activeDroneModels)
 
-	if not currentState.HasCompletedSetup then
+	if is2DMenuActive() then
 		return
 	end
 
@@ -3498,7 +4029,7 @@ local function rebuildOrbitingDrones()
 			dm.Parent = Workspace
 			table.insert(activeDroneModels, {
 				Model = dm,
-				Phase = idx * ((math.pi * 2) / math.max(1, #sigParts)),
+				Phase = idx * ((math.pi * 2) / math.max(1, #sigParts - 1)),
 				DroneId = entry.Id,
 				BeamColor = (cDef and cDef.BeamColor) or Color3.fromRGB(85, 225, 255),
 				CurrentPos = localPlanetPos + Vector3.new(0, 12, 0),
@@ -3685,17 +4216,19 @@ local function formatSecondsMMSS(sec: number): string
 end
 
 refreshUI = function()
-	genesisContainer.Visible = not currentState.HasCompletedSetup
-	inGameHUD.Visible = currentState.HasCompletedSetup
+	local menu2D = is2DMenuActive()
+	genesisContainer.Visible = menu2D
+	inGameHUD.Visible = not menu2D
+	launchBtn.Text = isCustomizingOverlayOpen and "🚀 APPLY & RETURN TO SPACE!" or "🚀 PLAY & SPAWN IN GALACTIC HUB!"
 
 	pcall(function()
-		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, currentState.HasCompletedSetup)
+		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, not menu2D)
 	end)
 
 	refreshShowroomAndActivePlanetModels()
 	rebuildOrbitingDrones()
 
-	if not currentState.HasCompletedSetup then
+	if menu2D then
 		local pt = PlanetConfig.PlanetTypes[currentState.Look.Biome] or PlanetConfig.PlanetTypes.Terrestrial
 		local sp = SpeciesConfig.Species[currentState.SpeciesId] or SpeciesConfig.Species.Terranauts
 		local covName = currentState.Look.LandCoverage or "MajorContinents"
@@ -3760,34 +4293,17 @@ refreshUI = function()
 	local drillPower = rates.DrillPower or 1
 	local fleetDPS = rates.DroneDPS or rates.DroneDamage or 7
 
-	-- Update Left-Side Resource & Fleet Telemetry Matrix
+	-- Update Top-Left Currency Bars & Modal Header Mini Pills
 	statCards.Gems.ValueLabel.Text = PlanetConfig.FormatNumber(currentState.Gems or 0)
-	statCards.Gems.RateLabel.Text = string.format("💎 GEMS (+%s/s)", PlanetConfig.FormatNumber(rates.Gems or 0))
-
-	statCards.DroneFleet.ValueLabel.Text = string.format("%s DP • %s DPS", PlanetConfig.FormatNumber(drillPower), PlanetConfig.FormatNumber(fleetDPS))
-	statCards.DroneFleet.RateLabel.Text = string.format("🛸 DRONES (%d/%d SLOTS)", eqCount, maxSlots)
-
 	statCards.Minerals.ValueLabel.Text = PlanetConfig.FormatNumber(res.Minerals or 0)
-	statCards.Minerals.RateLabel.Text = string.format("⛏ ORE (+%s/s)", PlanetConfig.FormatNumber(rates.Minerals or 0))
+	statCards.Energy.ValueLabel.Text = "⚡ " .. PlanetConfig.FormatNumber(res.Energy or 0)
+	statCards.Biomass.ValueLabel.Text = "🌿 " .. PlanetConfig.FormatNumber(res.Biomass or 0)
+	statCards.Tech.ValueLabel.Text = "🔬 " .. PlanetConfig.FormatNumber(res.Tech or 0)
 
-	statCards.Energy.ValueLabel.Text = PlanetConfig.FormatNumber(res.Energy or 0)
-	statCards.Energy.RateLabel.Text = string.format("⚡ FLUX (+%s/s)", PlanetConfig.FormatNumber(rates.Energy or 0))
+	modalHeaderOreLbl.Text = "⛏ " .. PlanetConfig.FormatNumber(res.Minerals or 0)
+	modalHeaderGemLbl.Text = "💎 " .. PlanetConfig.FormatNumber(currentState.Gems or 0)
 
-	statCards.Biomass.ValueLabel.Text = PlanetConfig.FormatNumber(res.Biomass or 0)
-	statCards.Biomass.RateLabel.Text = string.format("🌿 SPORES (+%s/s)", PlanetConfig.FormatNumber(rates.Biomass or 0))
-
-	statCards.Tech.ValueLabel.Text = PlanetConfig.FormatNumber(res.Tech or 0)
-	statCards.Tech.RateLabel.Text = string.format("🔬 ALLOY (+%s/s)", PlanetConfig.FormatNumber(rates.Tech or 0))
-
-	statCards.PlanetValue.ValueLabel.Text = PlanetConfig.FormatNumber(currentState.PlanetValueScore or 100)
-	local evo = SpeciesConfig.EvolutionNodes[currentState.ActiveEvolutionId] or SpeciesConfig.EvolutionNodes.Awakening
-	statCards.PlanetValue.RateLabel.Text = "★ " .. string.upper(evo.Name)
-
-	statCards.CosmicShards.ValueLabel.Text = string.format("%s🪐 • %sM👥", PlanetConfig.FormatNumber(currentState.CosmicShards or 0), PlanetConfig.FormatNumber(currentState.Population or 1))
-	local sp = SpeciesConfig.Species[currentState.SpeciesId] or SpeciesConfig.Species.Terranauts
-	statCards.CosmicShards.RateLabel.Text = string.upper(sp.Name)
-
-	-- Update Top Compact Pill & Collapsible Telemetry Drawer
+	-- Update Top-Center Status Banner + Orange-Red Sub-Banner + Collapsible Drawer
 	local rIdx = currentState.RankIndex or 1
 	local rankDef = PlanetConfig.PlanetaryRanks[rIdx] or PlanetConfig.PlanetaryRanks[1]
 	local nextRankDef = PlanetConfig.PlanetaryRanks[rIdx + 1]
@@ -3795,14 +4311,11 @@ refreshUI = function()
 	local ascMult = math.pow(2.5, ascCount)
 	local ascTag = (ascCount > 0) and string.format(" • ASC.%d (%sx)", ascCount, PlanetConfig.FormatNumber(ascMult)) or ""
 
-	topCompactSummaryLbl.Text = string.format(
-		"RANK %d  •  ZONE %d  •  DRILL %s  •  %d/%d DRONES",
-		rankDef.Rank,
-		rates.CurrentZoneTier or 1,
-		PlanetConfig.FormatNumber(drillPower),
-		eqCount,
-		maxSlots
-	)
+	local zTier = rates.CurrentZoneTier or 1
+	local zShortNames = { "Sanctuary Orbit", "Golden Belt", "Bio-Nebula", "Magma Rift", "Void Core", "Eternity Singularity" }
+	topCompactSummaryLbl.Text = string.format("NOW: %s", zShortNames[zTier] or ("Zone " .. tostring(zTier)))
+	topCompactBadge.Text = string.format("Rank %d  •  %d/%d Drones Active", rankDef.Rank, eqCount, maxSlots)
+	topRallyText.Text = string.format("🔥 DRILL x%s  •  DPS %s", PlanetConfig.FormatNumber(drillPower), PlanetConfig.FormatNumber(fleetDPS))
 
 	local activeBoostTags = {}
 	for _, bDef in ipairs(PlanetConfig.Boosters) do
@@ -3978,15 +4491,14 @@ refreshUI = function()
 		end
 	end
 
-	-- Update Drone Foundry Summary, Slot Upgrade Button & Inventory Grid
+	-- Update Drone Foundry Summary, Slot Upgrade Button, Vertical Rarity Cards & Spotlight Inspector
 	if droneSummaryLabel then
 		droneSummaryLabel.Text = string.format(
-			"SLOTS: %d / %d  •  🔨 DRILL: %s  •  ⚔️ DPS: %s  •  📈 YIELD: %sx",
+			"SLOTS: %d/%d  •  🔨 %s  •  ⚔️ %s",
 			eqCount,
 			maxSlots,
 			PlanetConfig.FormatNumber(drillPower),
-			PlanetConfig.FormatNumber(fleetDPS),
-			PlanetConfig.FormatNumber(rates.CompanionMult or 1)
+			PlanetConfig.FormatNumber(fleetDPS)
 		)
 	end
 	if buyDroneSlotBtn then
@@ -3994,13 +4506,13 @@ refreshUI = function()
 		local nextSlotDef = PlanetConfig.DroneSlotUpgrades[slotLvl + 1]
 		if nextSlotDef then
 			local canBuy = (currentState.Gems or 0) >= nextSlotDef.GemCost
-			buyDroneSlotBtn.Text = string.format("🔓 SLOT #%d (%s 💎)", nextSlotDef.SlotNumber, PlanetConfig.FormatNumber(nextSlotDef.GemCost))
-			buyDroneSlotBtn.BackgroundColor3 = canBuy and Color3.fromRGB(195, 65, 240) or Color3.fromRGB(55, 48, 82)
+			buyDroneSlotBtn.Text = string.format("+SLOT #%d (%s💎)", nextSlotDef.SlotNumber, PlanetConfig.FormatNumber(nextSlotDef.GemCost))
+			buyDroneSlotBtn.BackgroundColor3 = canBuy and Color3.fromRGB(215, 62, 242) or Color3.fromRGB(55, 48, 82)
 			if robuxDroneSlotBtn then
 				robuxDroneSlotBtn.Text = string.format("R$ %d", nextSlotDef.RobuxCost or 99)
 			end
 		else
-			buyDroneSlotBtn.Text = "✓ MAX DRONE SLOTS"
+			buyDroneSlotBtn.Text = "✓ MAX SLOTS"
 			buyDroneSlotBtn.BackgroundColor3 = Color3.fromRGB(45, 62, 88)
 			if robuxDroneSlotBtn then
 				robuxDroneSlotBtn.Text = "MAX"
@@ -4011,140 +4523,129 @@ refreshUI = function()
 	if droneInventoryGridFrame then
 		local invSigParts = {
 			tostring(maxSlots),
-			tostring(math.floor(res.Minerals or 0)),
-			tostring(math.floor(res.Energy or 0)),
-			tostring(math.floor(res.Biomass or 0)),
-			tostring(math.floor(res.Tech or 0)),
+			tostring(selectedShowcaseItem.Uid or ""),
 		}
 		for _, entry in ipairs(ownedDrones) do
 			table.insert(
 				invSigParts,
-				string.format("%s:%s:%s:%d", tostring(entry.Uid), tostring(entry.Id), tostring(entry.Equipped), entry.Level or 1)
+				string.format("%s:%s:%s:%d:%s", tostring(entry.Uid), tostring(entry.Id), tostring(entry.Equipped), entry.Level or 1, tostring(entry.IsGolden))
 			)
 		end
 		local invSig = table.concat(invSigParts, "|")
 		if invSig ~= lastDroneInvUISignature then
 			lastDroneInvUISignature = invSig
 			for _, ch in ipairs(droneInventoryGridFrame:GetChildren()) do
-				if ch:IsA("Frame") then
+				if ch:IsA("GuiButton") or ch:IsA("Frame") then
 					ch:Destroy()
 				end
 			end
+
+			local rarityGradients: { [string]: { Top: Color3, Bot: Color3 } } = {
+				Common = { Top = Color3.fromRGB(122, 142, 168), Bot = Color3.fromRGB(76, 92, 116) },
+				Uncommon = { Top = Color3.fromRGB(62, 212, 118), Bot = Color3.fromRGB(28, 142, 68) },
+				Rare = { Top = Color3.fromRGB(58, 168, 245), Bot = Color3.fromRGB(28, 108, 198) },
+				Epic = { Top = Color3.fromRGB(168, 72, 245), Bot = Color3.fromRGB(108, 32, 188) },
+				Legendary = { Top = Color3.fromRGB(255, 205, 52), Bot = Color3.fromRGB(218, 138, 18) },
+				Mythic = { Top = Color3.fromRGB(255, 68, 132), Bot = Color3.fromRGB(188, 22, 78) },
+			}
+
 			for _, entry in ipairs(ownedDrones) do
 				local cDef = PlanetConfig.Companions[entry.Id]
 				if cDef then
 					local isGold = (entry.IsGolden == true) or (entry.Golden == true)
 					local lvl = entry.Level or 1
 					local stats = PlanetConfig.GetDroneStats(entry.Id, lvl, isGold)
-					local rInfo = PlanetConfig.DroneRarities[cDef.Rarity]
-					local rCol = isGold and Color3.fromRGB(255, 215, 65) or ((rInfo and rInfo.Color) or cDef.Color)
+					local rGrad = rarityGradients[cDef.Rarity] or rarityGradients.Common
+					local isSelected = (selectedShowcaseItem.Kind == "Drone" and selectedShowcaseItem.Uid == entry.Uid)
 
-					local dCard = Instance.new("Frame")
-					dCard.BackgroundColor3 = entry.Equipped and Color3.fromRGB(18, 32, 52) or Color3.fromRGB(13, 18, 34)
+					local dCard = Instance.new("TextButton")
+					dCard.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+					dCard.Text = ""
+					dCard.AutoButtonColor = false
 					dCard.Parent = droneInventoryGridFrame
-					addCorner(dCard, 8)
-					addBorderStroke(dCard, rCol, entry.Equipped and 1.5 or 1.0)
+					addCorner(dCard, 12)
+					addBorderStroke(
+						dCard,
+						isSelected and Color3.fromRGB(108, 248, 56) or Color3.fromRGB(10, 14, 24),
+						isSelected and 3.2 or 2.5
+					)
+					addGradient(dCard, rGrad.Top, rGrad.Bot, 90)
 
-					local topBar = Instance.new("Frame")
-					topBar.Size = UDim2.new(1, -12, 0, 3)
-					topBar.Position = UDim2.new(0, 6, 0, 4)
-					topBar.BackgroundColor3 = rCol
-					topBar.BorderSizePixel = 0
-					topBar.Parent = dCard
-					addCorner(topBar, 2)
+					-- Top-Left Corner Ribbon ("EQUIPPED" in Lime Green or "LV.X" in Red)
+					local ribbon = Instance.new("TextLabel")
+					ribbon.Size = UDim2.new(0, entry.Equipped and 68 or 48, 0, 20)
+					ribbon.Position = UDim2.new(0, -2, 0, -2)
+					ribbon.BackgroundColor3 = entry.Equipped and Color3.fromRGB(72, 225, 42) or Color3.fromRGB(238, 52, 48)
+					ribbon.Text = entry.Equipped and "EQUIPPED" or ("LV." .. tostring(lvl))
+					ribbon.TextColor3 = Color3.fromRGB(255, 255, 255)
+					ribbon.Font = Enum.Font.GothamBlack
+					ribbon.TextSize = 10
+					ribbon.ZIndex = 4
+					ribbon.Parent = dCard
+					addCorner(ribbon, 6)
+					addBorderStroke(ribbon, Color3.fromRGB(10, 14, 22), 2.0)
+					addTextStroke(ribbon, 1.4)
+
+					-- Live 3D Drone ViewportFrame inside Card
+					local vp = Instance.new("ViewportFrame")
+					vp.Size = UDim2.new(1, -12, 0, 78)
+					vp.Position = UDim2.new(0, 6, 0, 16)
+					vp.BackgroundTransparency = 1
+					vp.Parent = dCard
+					populateDroneViewport(vp, entry.Id, isGold, lvl)
 
 					local dName = Instance.new("TextLabel")
-					dName.Size = UDim2.new(1, -14, 0, 18)
-					dName.Position = UDim2.new(0, 7, 0, 9)
+					dName.Size = UDim2.new(1, -8, 0, 18)
+					dName.Position = UDim2.new(0, 4, 1, -50)
 					dName.BackgroundTransparency = 1
-					dName.Text = string.format("%s%s [Lv.%d]", isGold and "★ " or "", cDef.Name, lvl)
-					dName.TextColor3 = rCol
+					dName.Text = (isGold and "★ " or "") .. cDef.Name
+					dName.TextColor3 = Color3.fromRGB(255, 255, 255)
 					dName.Font = Enum.Font.GothamBlack
 					dName.TextSize = 11
-					dName.TextXAlignment = Enum.TextXAlignment.Left
 					dName.TextTruncate = Enum.TextTruncate.AtEnd
 					dName.Parent = dCard
+					addTextStroke(dName, 1.6)
 
-					local dRarity = Instance.new("TextLabel")
-					dRarity.Size = UDim2.new(1, -14, 0, 14)
-					dRarity.Position = UDim2.new(0, 7, 0, 27)
-					dRarity.BackgroundTransparency = 1
-					dRarity.Text = string.upper(cDef.Rarity) .. (isGold and " • GOLDEN 1.85x" or "")
-					dRarity.TextColor3 = Color3.fromRGB(185, 205, 235)
-					dRarity.Font = Enum.Font.GothamBold
-					dRarity.TextSize = 9
-					dRarity.TextXAlignment = Enum.TextXAlignment.Left
-					dRarity.Parent = dCard
+					-- Bottom Dark-Navy Stat Pill (Matches Price/Stat Pill in Screenshot!)
+					local statPill = Instance.new("Frame")
+					statPill.Size = UDim2.new(1, -12, 0, 24)
+					statPill.Position = UDim2.new(0, 6, 1, -29)
+					statPill.BackgroundColor3 = Color3.fromRGB(20, 28, 48)
+					statPill.Parent = dCard
+					addCorner(statPill, 7)
+					addBorderStroke(statPill, Color3.fromRGB(8, 12, 22), 2.0)
 
-					local dStats = Instance.new("TextLabel")
-					dStats.Size = UDim2.new(1, -14, 0, 30)
-					dStats.Position = UDim2.new(0, 7, 0, 42)
-					dStats.BackgroundTransparency = 1
-					dStats.Text = string.format(
-						"🔨 %s Drill  •  ⚔️ %s DMG (%.2fx/s)\n📈 %.2fx Yield  •  💎 %.2fx Gems",
-						PlanetConfig.FormatNumber(stats.DrillPower),
-						PlanetConfig.FormatNumber(stats.Damage),
-						stats.DrillSpeed,
-						stats.YieldMult,
-						stats.GemMult
-					)
-					dStats.TextColor3 = Color3.fromRGB(115, 240, 185)
-					dStats.Font = Enum.Font.GothamMedium
-					dStats.TextSize = 10
-					dStats.TextWrapped = true
-					dStats.TextXAlignment = Enum.TextXAlignment.Left
-					dStats.Parent = dCard
+					local statTxt = Instance.new("TextLabel")
+					statTxt.Size = UDim2.new(1, -6, 1, 0)
+					statTxt.Position = UDim2.new(0, 3, 0, 0)
+					statTxt.BackgroundTransparency = 1
+					statTxt.Text = string.format("🔨%s • ⚔️%s", PlanetConfig.FormatNumber(stats.DrillPower), PlanetConfig.FormatNumber(stats.Damage))
+					statTxt.TextColor3 = Color3.fromRGB(115, 245, 175)
+					statTxt.Font = Enum.Font.GothamBlack
+					statTxt.TextSize = 10
+					statTxt.TextTruncate = Enum.TextTruncate.AtEnd
+					statTxt.Parent = statPill
+					addTextStroke(statTxt, 1.3)
 
 					local uidCopy = entry.Uid
-
-					local eqBtn = Instance.new("TextButton")
-					eqBtn.Size = UDim2.new(1, -14, 0, 24)
-					eqBtn.Position = UDim2.new(0, 7, 1, -56)
-					eqBtn.BackgroundColor3 = entry.Equipped and Color3.fromRGB(38, 185, 108) or Color3.fromRGB(36, 54, 92)
-					eqBtn.Text = entry.Equipped and "✓ EQUIPPED" or "EQUIP DRONE"
-					eqBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-					eqBtn.Font = Enum.Font.GothamBlack
-					eqBtn.TextSize = 10
-					eqBtn.Parent = dCard
-					addCorner(eqBtn, 5)
-
-					eqBtn.MouseButton1Click:Connect(function()
-						playSFX(sfxClick, 0.32)
-						CompanionActionEvent:FireServer("ToggleEquip", uidCopy)
-					end)
-
-					local lvlBtn = Instance.new("TextButton")
-					lvlBtn.Size = UDim2.new(1, -14, 0, 24)
-					lvlBtn.Position = UDim2.new(0, 7, 1, -28)
-					lvlBtn.Font = Enum.Font.GothamBlack
-					lvlBtn.TextSize = 9
-					lvlBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-					lvlBtn.Parent = dCard
-					addCorner(lvlBtn, 5)
-
-					local maxLvl = PlanetConfig.MaxDroneLevel or 25
-					if lvl >= maxLvl then
-						lvlBtn.Text = "✓ MAX LEVEL (" .. tostring(maxLvl) .. ")"
-						lvlBtn.BackgroundColor3 = Color3.fromRGB(42, 52, 74)
-					else
-						local upCost = PlanetConfig.GetDroneLevelUpCost(entry.Id, lvl)
-						local canAffordLvl = true
-						for rKey, rAmt in pairs(upCost) do
-							if (res[rKey] or 0) < rAmt then
-								canAffordLvl = false
-								break
-							end
+					dCard.MouseButton1Click:Connect(function()
+						playSFX(sfxClick, 0.30)
+						if selectedShowcaseItem.Kind == "Drone" and selectedShowcaseItem.Uid == uidCopy then
+							-- Clicking an already-selected drone card toggles equip immediately!
+							CompanionActionEvent:FireServer("ToggleEquip", uidCopy)
+						else
+							selectedShowcaseItem = { Kind = "Drone", Id = entry.Id, Uid = uidCopy }
+							lastDroneInvUISignature = ""
+							refreshUI()
 						end
-						lvlBtn.Text = "⬆️ LV." .. tostring(lvl + 1) .. " (" .. formatCost(upCost) .. ")"
-						lvlBtn.BackgroundColor3 = canAffordLvl and Color3.fromRGB(45, 135, 225) or Color3.fromRGB(42, 48, 68)
-						lvlBtn.MouseButton1Click:Connect(function()
-							playSFX(sfxUpgrade, 0.36)
-							CompanionActionEvent:FireServer("LevelUp", uidCopy)
-						end)
-					end
+					end)
 				end
 			end
 		end
+	end
+
+	if updateDroneSpotlightPanel then
+		updateDroneSpotlightPanel()
 	end
 
 	-- Update Playtime Gifts & Boosters UI
@@ -4256,7 +4757,7 @@ local moveKeys = {
 }
 
 local function tryClickSelect3DTarget(screenPos: Vector2)
-	if not camera or not currentState.HasCompletedSetup or modalFrame.Visible then
+	if not camera or is2DMenuActive() or modalFrame.Visible then
 		return
 	end
 	local unitRay = camera:ViewportPointToRay(screenPos.X, screenPos.Y)
@@ -4282,8 +4783,15 @@ local function tryClickSelect3DTarget(screenPos: Vector2)
 	local inst: Instance? = hit.Instance
 	while inst and inst ~= Workspace do
 		if inst.Name == "OrbitalDroneFoundry" or inst:GetAttribute("PodId") ~= nil then
+			local clickedPodId = inst:GetAttribute("PodId")
+			if type(clickedPodId) == "string" and #clickedPodId > 0 then
+				selectedShowcaseItem = { Kind = "Pod", Id = clickedPodId, Uid = nil }
+				if updateDroneSpotlightPanel then
+					updateDroneSpotlightPanel()
+				end
+			end
 			playSFX(sfxClick, 0.32)
-			toggleTab("Drones", "ORBITAL DRONE FOUNDRY // ROLL, EQUIP & LEVEL UP")
+			toggleTab("Drones", "DRONE SHOP")
 			return
 		end
 		if inst:IsA("Model") and (inst:GetAttribute("NodeType") ~= nil or inst:GetAttribute("OwnerUserId") ~= nil) then
@@ -4325,7 +4833,7 @@ UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: 
 	elseif kc == Enum.KeyCode.LeftShift then
 		moveKeys.LeftShift = true
 	elseif kc == Enum.KeyCode.E or kc == Enum.KeyCode.F then
-		if currentState.HasCompletedSetup and (nearestHubMachineId or nearestSpaceStationId) then
+		if (not is2DMenuActive()) and (nearestHubMachineId or nearestSpaceStationId) then
 			triggerNearestMachineUI()
 		end
 	end
@@ -4356,7 +4864,7 @@ end)
 
 UserInputService.InputChanged:Connect(function(input: InputObject, gameProcessed: boolean)
 	if input.UserInputType == Enum.UserInputType.MouseMovement and isRightMouseDown then
-		if not currentState.HasCompletedSetup then
+		if is2DMenuActive() then
 			creatorOrbitYaw -= input.Delta.X * 0.005
 			creatorOrbitPitch = math.clamp(creatorOrbitPitch - input.Delta.Y * 0.005, -1.1, 1.1)
 		else
@@ -4364,7 +4872,7 @@ UserInputService.InputChanged:Connect(function(input: InputObject, gameProcessed
 			camPitch = math.clamp(camPitch - input.Delta.Y * 0.0045, -1.25, 1.25)
 		end
 	elseif input.UserInputType == Enum.UserInputType.MouseWheel and not gameProcessed then
-		if not currentState.HasCompletedSetup then
+		if is2DMenuActive() then
 			creatorZoom = math.clamp(creatorZoom - input.Position.Z * 5, 34, 95)
 		else
 			camDist = math.clamp(camDist - input.Position.Z * 8, 46, 260)
@@ -4385,8 +4893,15 @@ RunService.RenderStepped:Connect(function(dt: number)
 	local rotSpeed = getRotationSpeedValue()
 	hideServerDuplicateOfMyPlanet(false)
 
-	-- 2D MENU PHASE: Animate the 3D Planet & Species inside `mainViewport`
-	if not currentState.HasCompletedSetup then
+	-- Animate 3D Spotlight Model when Drone Shop modal is open
+	if modalFrame.Visible and activeTab == "Drones" and spotlightViewportModel and spotlightViewportModel.Parent then
+		spotlightViewportModel:PivotTo(
+			CFrame.new(0, math.sin(os.clock() * 2.4) * 0.25, 0) * CFrame.Angles(math.rad(10), os.clock() * 1.15, 0)
+		)
+	end
+
+	-- 2D MENU PHASE (Initial Setup OR In-Game Customize Planet Overlay): Animate 3D Planet & Species inside `mainViewport`
+	if is2DMenuActive() then
 		spinAngle += dt * rotSpeed * 1.35
 		if vpPlanetModel then
 			vpPlanetModel:PivotTo(CFrame.new(-7, 2, 0) * CFrame.Angles(0, spinAngle, math.rad(8)))
