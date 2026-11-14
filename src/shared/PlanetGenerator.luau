@@ -398,16 +398,28 @@ function PlanetGenerator.BuildSpeciesCharacterModel(speciesId: string, scale: nu
 end
 
 -- ============================================================================
--- 2. HIGH-DETAIL SPACE COLLECTIBLE MODELS (Distance-Tiered Materials & Icon Badge!)
+-- 2. HIGH-DETAIL SPACE COLLECTIBLE & ENEMY MODELS (With Sleek Sci-Fi HP Tag!)
 -- ============================================================================
 local COLLECTIBLE_ICONS: { [string]: string } = {
-	Minerals = "⛏",
-	Biomass = "🌿",
+	Minerals = "◆",
+	Biomass = "❖",
 	Energy = "⚡",
-	Tech = "🔬",
+	Tech = "⬢",
 	StarGems = "💎",
 	PopulationPod = "🛸",
-	SupernovaChest = "🌟",
+	SupernovaChest = "★",
+	SpaceEnemy = "⚔",
+}
+
+local COLLECTIBLE_SHORT: { [string]: string } = {
+	Minerals = "ORE",
+	Biomass = "BIO",
+	Energy = "FLUX",
+	Tech = "TECH",
+	StarGems = "GEMS",
+	PopulationPod = "ARK",
+	SupernovaChest = "VAULT",
+	SpaceEnemy = "HOSTILE",
 }
 
 function PlanetGenerator.BuildSpaceCollectibleModel(
@@ -443,7 +455,6 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 	model.PrimaryPart = core
 
 	if collectibleType == "Minerals" then
-		-- Zone-Tiered Ore Geode: Iron Rock (T1) -> Golden Sandstone (T2) -> Cobalt Glacier (T3) -> Molten Mythril (T4) -> Dark-Matter (T5) -> Omnium (T6)
 		core.Material = zoneRockMat
 		core.Color = Color3.fromRGB(96, 90, 84):Lerp(zTheme, 0.28)
 		core.Size = Vector3.new(19 * s, 15 * s, 17 * s)
@@ -472,7 +483,6 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 			})
 		end
 	elseif collectibleType == "Biomass" then
-		-- Living Botanical Asteroid upgraded by Zone Biome
 		core.Material = (tier == 3) and Enum.Material.Glacier or Enum.Material.Ground
 		core.Color = Color3.fromRGB(92, 68, 48):Lerp(zTheme, 0.20)
 		createPart({
@@ -507,18 +517,17 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 			})
 		end
 	elseif collectibleType == "Energy" then
-		-- Radioactive / Plasma Pulsar Core surrounded by matte Basalt containment rings
 		core.Material = Enum.Material.Neon
 		core.Color = accentColor:Lerp(zTheme, 0.4)
 		core.Size = Vector3.new(13 * s, 13 * s, 13 * s)
 		local ringCount = (tier >= 4) and 3 or 2
 		for r = 1, ringCount do
 			local rTilt = CFrame.Angles(math.rad(r * 35), math.rad(r * 20), math.rad(r == 1 and 25 or -25))
-			for seg = 1, 12 do
-				local a = (seg / 12) * math.pi * 2
+			for seg = 1, 10 do
+				local a = (seg / 10) * math.pi * 2
 				createPart({
 					Name = string.format("ContainmentRing_%d_%d", r, seg),
-					Size = Vector3.new(2.4 * s, 2.0 * s, 7.5 * s),
+					Size = Vector3.new(2.4 * s, 2.0 * s, 8.5 * s),
 					CFrame = originCF * rTilt * CFrame.Angles(0, a, 0) * CFrame.new(13 * s, 0, 0),
 					Color = Color3.fromRGB(52, 56, 66),
 					Material = Enum.Material.Basalt,
@@ -527,7 +536,6 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 			end
 		end
 	elseif collectibleType == "Tech" then
-		-- Matte Precursor Satellite with Concrete/Slate Chassis & Solar Wings
 		core.Shape = Enum.PartType.Cylinder
 		core.Size = Vector3.new(14 * s, 10 * s, 10 * s)
 		core.CFrame = originCF * CFrame.Angles(0, 0, math.rad(90))
@@ -561,7 +569,6 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 			Parent = model,
 		})
 	elseif collectibleType == "StarGems" then
-		-- Crystalline Star-Gem Geode Cluster (Basalt/Slate base + multi-shard Gem Spires!)
 		core.Shape = Enum.PartType.Ball
 		core.Size = Vector3.new(17 * s, 12 * s, 17 * s)
 		core.Color = Color3.fromRGB(48, 52, 66)
@@ -582,7 +589,6 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 			})
 		end
 	elseif collectibleType == "PopulationPod" then
-		-- Matte Spacecraft Escape Pod with Basalt Heatshield
 		core.Shape = Enum.PartType.Cylinder
 		core.Size = Vector3.new(18 * s, 11 * s, 11 * s)
 		core.Color = Color3.fromRGB(185, 192, 205)
@@ -606,7 +612,6 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 			Parent = model,
 		})
 	elseif collectibleType == "SupernovaChest" then
-		-- Ancient Carved Sandstone & Basalt Vault with a glowing inner seam
 		core.Shape = Enum.PartType.Block
 		core.Size = Vector3.new(18 * s, 13 * s, 14 * s)
 		core.Color = Color3.fromRGB(175, 142, 82):Lerp(zTheme, 0.35)
@@ -628,115 +633,439 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 			Material = Enum.Material.Neon,
 			Parent = model,
 		})
+	elseif collectibleType == "SpaceEnemy" then
+		-- Hostile Rogue Void Warship / Pirate Sentinel
+		core.Shape = Enum.PartType.Block
+		core.Size = Vector3.new(16 * s, 7 * s, 22 * s)
+		core.Color = Color3.fromRGB(36, 38, 48)
+		core.Material = Enum.Material.Basalt
+		-- Bridge / Command Core
+		createPart({
+			Name = "EnemyCommandCore",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.new(9 * s, 6 * s, 10 * s),
+			CFrame = originCF * CFrame.new(0, 3.5 * s, -2 * s),
+			Color = Color3.fromRGB(255, 55, 85),
+			Material = Enum.Material.Neon,
+			Parent = model,
+		})
+		-- Swept Armored Wings & Twin Plasma Cannons
+		for _, side in ipairs({ -1, 1 }) do
+			createWedge({
+				Name = "EnemyWing_" .. side,
+				Size = Vector3.new(3.5 * s, 16 * s, 18 * s),
+				CFrame = originCF * CFrame.new(side * 13 * s, 0, 2 * s) * CFrame.Angles(0, 0, math.rad(side * 82)),
+				Color = Color3.fromRGB(58, 62, 76),
+				Material = Enum.Material.Slate,
+				Parent = model,
+			})
+			createPart({
+				Name = "EnemyCannon_" .. side,
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(14 * s, 2.2 * s, 2.2 * s),
+				CFrame = originCF * CFrame.new(side * 9 * s, -1.5 * s, -10 * s) * CFrame.Angles(0, math.rad(90), 0),
+				Color = Color3.fromRGB(255, 75, 95),
+				Material = Enum.Material.Neon,
+				Parent = model,
+			})
+		end
 	end
 
-	-- Compact, non-disruptive circular Icon Badge (with subtle T1..T6 Tier Pip!)
+	-- Sleek High-Tech Sci-Fi Telemetry Callout with Live HP Bar
 	local bb = Instance.new("BillboardGui")
 	bb.Name = "CollectibleIconGui"
-	bb.Size = UDim2.new(0, 36, 0, 36)
-	bb.StudsOffset = Vector3.new(0, 15 * s, 0)
-	bb.MaxDistance = 260
+	bb.Size = UDim2.new(0, 116, 0, 34)
+	bb.StudsOffset = Vector3.new(0, 15.5 * s, 0)
+	bb.MaxDistance = (collectibleType == "SpaceEnemy" or collectibleType == "SupernovaChest") and 340 or 230
 	bb.AlwaysOnTop = false
 	bb.LightInfluence = 0
 	bb.Adornee = core
 	bb.Parent = core
 
 	local badge = Instance.new("Frame")
+	badge.Name = "BadgeFrame"
 	badge.Size = UDim2.fromScale(1, 1)
-	badge.BackgroundColor3 = Color3.fromRGB(16, 20, 32)
-	badge.BackgroundTransparency = 0.22
+	badge.BackgroundColor3 = Color3.fromRGB(10, 14, 24)
+	badge.BackgroundTransparency = 0.18
 	badge.Parent = bb
 
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(1, 0)
+	corner.CornerRadius = UDim.new(0, 6)
 	corner.Parent = badge
 
 	local stroke = Instance.new("UIStroke")
-	stroke.Color = zTheme
-	stroke.Thickness = (tier >= 3) and 2.2 or 1.8
-	stroke.Transparency = 0.15
+	stroke.Color = (collectibleType == "SpaceEnemy") and Color3.fromRGB(255, 75, 95) or zTheme
+	stroke.Thickness = 1.2
+	stroke.Transparency = 0.25
 	stroke.Parent = badge
 
-	local iconLbl = Instance.new("TextLabel")
-	iconLbl.Name = "IconLabel"
-	iconLbl.Size = UDim2.fromScale(0.76, 0.76)
-	iconLbl.Position = UDim2.fromScale(0.12, 0.08)
-	iconLbl.BackgroundTransparency = 1
-	iconLbl.Text = COLLECTIBLE_ICONS[collectibleType] or "★"
-	iconLbl.TextColor3 = accentColor
-	iconLbl.Font = Enum.Font.FredokaOne
-	iconLbl.TextScaled = true
-	iconLbl.Parent = badge
+	local leftAccent = Instance.new("Frame")
+	leftAccent.Size = UDim2.new(0, 3, 1, -8)
+	leftAccent.Position = UDim2.new(0, 4, 0, 4)
+	leftAccent.BackgroundColor3 = (collectibleType == "SpaceEnemy") and Color3.fromRGB(255, 75, 95) or accentColor
+	leftAccent.BorderSizePixel = 0
+	leftAccent.Parent = badge
+	local lac = Instance.new("UICorner")
+	lac.CornerRadius = UDim.new(1, 0)
+	lac.Parent = leftAccent
 
-	if tier >= 2 then
-		local tierTag = Instance.new("TextLabel")
-		tierTag.Name = "TierBadge"
-		tierTag.Size = UDim2.new(0, 18, 0, 11)
-		tierTag.AnchorPoint = Vector2.new(0.5, 1)
-		tierTag.Position = UDim2.new(0.5, 0, 1, 2)
-		tierTag.BackgroundColor3 = Color3.fromRGB(12, 16, 28)
-		tierTag.BackgroundTransparency = 0.15
-		tierTag.Text = "T" .. tostring(tier)
-		tierTag.TextColor3 = zTheme
-		tierTag.Font = Enum.Font.FredokaOne
-		tierTag.TextSize = 9
-		tierTag.Parent = badge
-		local tc = Instance.new("UICorner")
-		tc.CornerRadius = UDim.new(0, 4)
-		tc.Parent = tierTag
+	local shortTag = COLLECTIBLE_SHORT[collectibleType] or "NODE"
+	local iconChar = COLLECTIBLE_ICONS[collectibleType] or "◆"
+
+	local titleLbl = Instance.new("TextLabel")
+	titleLbl.Name = "IconLabel"
+	titleLbl.Size = UDim2.new(1, -14, 0, 15)
+	titleLbl.Position = UDim2.new(0, 11, 0, 2)
+	titleLbl.BackgroundTransparency = 1
+	titleLbl.Text = string.format("%s T%d %s", iconChar, tier, shortTag)
+	titleLbl.TextColor3 = Color3.fromRGB(238, 244, 255)
+	titleLbl.Font = Enum.Font.GothamBold
+	titleLbl.TextSize = 11
+	titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+	titleLbl.Parent = badge
+
+	local hpBg = Instance.new("Frame")
+	hpBg.Name = "HPBarBg"
+	hpBg.Size = UDim2.new(1, -16, 0, 9)
+	hpBg.Position = UDim2.new(0, 11, 0, 19)
+	hpBg.BackgroundColor3 = Color3.fromRGB(22, 28, 44)
+	hpBg.BorderSizePixel = 0
+	hpBg.Parent = badge
+	local hpc = Instance.new("UICorner")
+	hpc.CornerRadius = UDim.new(1, 0)
+	hpc.Parent = hpBg
+
+	local hpFill = Instance.new("Frame")
+	hpFill.Name = "HPFill"
+	hpFill.Size = UDim2.fromScale(1, 1)
+	hpFill.BackgroundColor3 = (collectibleType == "SpaceEnemy") and Color3.fromRGB(255, 75, 95) or accentColor
+	hpFill.BorderSizePixel = 0
+	hpFill.Parent = hpBg
+	local hpfc = Instance.new("UICorner")
+	hpfc.CornerRadius = UDim.new(1, 0)
+	hpfc.Parent = hpFill
+
+	local hpText = Instance.new("TextLabel")
+	hpText.Name = "HPText"
+	hpText.Size = UDim2.fromScale(1, 1)
+	hpText.BackgroundTransparency = 1
+	hpText.Text = "100%"
+	hpText.TextColor3 = Color3.fromRGB(255, 255, 255)
+	hpText.Font = Enum.Font.GothamBold
+	hpText.TextSize = 8
+	hpText.Parent = hpBg
+
+	local function refreshHPBar()
+		local curHP = tonumber(model:GetAttribute("HP"))
+		local maxHP = tonumber(model:GetAttribute("MaxHP"))
+		if curHP and maxHP and maxHP > 0 then
+			local ratio = math.clamp(curHP / maxHP, 0, 1)
+			hpFill.Size = UDim2.fromScale(ratio, 1)
+			hpText.Text = string.format("%s / %s", PlanetConfig.FormatNumber(curHP), PlanetConfig.FormatNumber(maxHP))
+			if ratio < 1 then
+				bb.MaxDistance = 380
+			end
+		end
 	end
+	model:GetAttributeChangedSignal("HP"):Connect(refreshHPBar)
+	model:GetAttributeChangedSignal("MaxHP"):Connect(refreshHPBar)
+	task.defer(refreshHPBar)
 
 	return model
 end
 
--- Build a 3D Orbital Companion / Satellite Drone Model
-function PlanetGenerator.BuildCompanionDroneModel(companionId: string, isGolden: boolean?): Model
-	local cDef = PlanetConfig.Companions[companionId] or PlanetConfig.Companions.SputnikMiner
+-- ============================================================================
+-- 2B. 12 UNIQUE, HIGH-DETAIL 3D DRONE MODELS (Each with BeamMuzzle Attachment!)
+-- ============================================================================
+function PlanetGenerator.BuildCompanionDroneModel(companionId: string, isGolden: boolean?, level: number?): Model
+	local cDef = PlanetConfig.Companions[companionId] or PlanetConfig.Companions.ScrapWelder
 	local m = Instance.new("Model")
 	m.Name = "CompanionDrone_" .. companionId
+	local lvScale = 1.0 + math.clamp((tonumber(level) or 1) - 1, 0, 24) * 0.012
+	local s = lvScale
 	local mainCol = isGolden and Color3.fromRGB(255, 215, 55) or cDef.Color
+	local beamCol = isGolden and Color3.fromRGB(255, 230, 95) or (cDef.BeamColor or mainCol)
+	local chassisMat = isGolden and Enum.Material.Sandstone or Enum.Material.Slate
 
 	local body = createPart({
 		Name = "DroneCore",
 		Shape = Enum.PartType.Ball,
-		Size = Vector3.new(4.2, 4.2, 4.2),
+		Size = Vector3.new(4.2 * s, 4.2 * s, 4.2 * s),
 		CFrame = CFrame.new(0, 0, 0),
-		Color = Color3.fromRGB(58, 64, 78),
-		Material = isGolden and Enum.Material.Sandstone or Enum.Material.Slate,
+		Color = Color3.fromRGB(44, 50, 64),
+		Material = chassisMat,
 		Parent = m,
 	})
 	m.PrimaryPart = body
 
+	-- Muzzle attachment at the front (-Z) for 3D Laser Beams
+	local muzzle = Instance.new("Attachment")
+	muzzle.Name = "BeamMuzzle"
+	muzzle.Position = Vector3.new(0, 0, -2.5 * s)
+	muzzle.Parent = body
+
+	-- Front Laser Emitter Lens
 	createPart({
 		Name = "DroneEye",
 		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(1.2, 2.2, 2.2),
-		CFrame = CFrame.new(0, 0, -1.8) * CFrame.Angles(0, math.rad(90), 0),
-		Color = mainCol,
+		Size = Vector3.new(1.1 * s, 2.1 * s, 2.1 * s),
+		CFrame = CFrame.new(0, 0, -1.9 * s) * CFrame.Angles(0, math.rad(90), 0),
+		Color = beamCol,
 		Material = Enum.Material.Neon,
 		Parent = m,
 	})
 
-	for _, side in ipairs({ -1, 1 }) do
+	if companionId == "ScrapWelder" then
+		-- Industrial Salvage Box Chassis + Roll Cage + Twin Articulated Welding Torches
+		body.Shape = Enum.PartType.Block
+		body.Size = Vector3.new(4.0 * s, 3.2 * s, 4.4 * s)
+		body.Color = Color3.fromRGB(165, 130, 55)
+		body.Material = Enum.Material.DiamondPlate
+		for _, side in ipairs({ -1, 1 }) do
+			createPart({
+				Name = "WeldArm_" .. side,
+				Size = Vector3.new(0.8 * s, 0.8 * s, 4.2 * s),
+				CFrame = CFrame.new(side * 2.5 * s, -0.4 * s, -1.2 * s),
+				Color = Color3.fromRGB(72, 78, 92),
+				Material = Enum.Material.Concrete,
+				Parent = m,
+			})
+			createPart({
+				Name = "TorchTip_" .. side,
+				Shape = Enum.PartType.Ball,
+				Size = Vector3.new(1.1 * s, 1.1 * s, 1.1 * s),
+				CFrame = CFrame.new(side * 2.5 * s, -0.4 * s, -3.3 * s),
+				Color = beamCol,
+				Material = Enum.Material.Neon,
+				Parent = m,
+			})
+		end
+	elseif companionId == "SputnikMiner" then
+		-- Classic Spherical Sputnik with 4 Swept Radio Whiskers & Clamp Ring
 		createPart({
-			Name = "DroneWing_" .. side,
-			Size = Vector3.new(4.5, 0.5, 2.0),
-			CFrame = CFrame.new(side * 3.6, 0, 0) * CFrame.Angles(0, 0, math.rad(side * 12)),
+			Name = "EquatorialBelt",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(0.6 * s, 4.8 * s, 4.8 * s),
+			CFrame = CFrame.Angles(0, 0, math.rad(90)),
 			Color = mainCol,
 			Material = Enum.Material.Concrete,
 			Parent = m,
 		})
+		for aIdx = 1, 4 do
+			local a = (aIdx / 4) * math.pi * 2 + 0.78
+			createPart({
+				Name = "Antenna_" .. aIdx,
+				Size = Vector3.new(0.28 * s, 0.28 * s, 5.2 * s),
+				CFrame = CFrame.new(math.cos(a) * 1.6 * s, math.sin(a) * 1.6 * s, 2.2 * s)
+					* CFrame.Angles(math.sin(a) * 0.35, -math.cos(a) * 0.35, 0),
+				Color = mainCol,
+				Material = Enum.Material.Limestone,
+				Parent = m,
+			})
+		end
+	elseif companionId == "BioScout" then
+		-- Botanical Spore-Pod with Leafy Canopy Dome & Glowing Bio-Tendrils
+		createPart({
+			Name = "BioCap",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.new(5.2 * s, 2.6 * s, 5.2 * s),
+			CFrame = CFrame.new(0, 1.4 * s, 0),
+			Color = mainCol,
+			Material = Enum.Material.LeafyGrass,
+			Parent = m,
+		})
+		for t = 1, 4 do
+			local a = (t / 4) * math.pi * 2
+			createPart({
+				Name = "SporeNode_" .. t,
+				Shape = Enum.PartType.Ball,
+				Size = Vector3.new(1.3 * s, 1.3 * s, 1.3 * s),
+				CFrame = CFrame.new(math.cos(a) * 2.4 * s, -0.6 * s, math.sin(a) * 2.4 * s),
+				Color = beamCol,
+				Material = Enum.Material.Neon,
+				Parent = m,
+			})
+		end
+	elseif companionId == "QuartzCutter" then
+		-- Angular Crystal Twin-Saw Frame
+		for _, side in ipairs({ -1, 1 }) do
+			createPart({
+				Name = "SawDisc_" .. side,
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(0.45 * s, 4.4 * s, 4.4 * s),
+				CFrame = CFrame.new(side * 2.8 * s, 0, -0.8 * s) * CFrame.Angles(0, 0, math.rad(90)),
+				Color = mainCol,
+				Material = Enum.Material.Neon,
+				Parent = m,
+			})
+			createWedge({
+				Name = "CrystalPylon_" .. side,
+				Size = Vector3.new(1.2 * s, 3.8 * s, 2.4 * s),
+				CFrame = CFrame.new(side * 2.2 * s, 1.2 * s, 0.5 * s),
+				Color = mainCol,
+				Material = Enum.Material.Glacier,
+				Parent = m,
+			})
+		end
+	elseif companionId == "SolarRelay" then
+		-- Golden Helios Cube with 4 Cruciform Solar Sail Wings
+		body.Shape = Enum.PartType.Block
+		body.Size = Vector3.new(3.8 * s, 3.8 * s, 3.8 * s)
+		body.CFrame = CFrame.Angles(math.rad(45), 0, math.rad(45))
+		for w = 1, 4 do
+			local a = (w / 4) * math.pi * 2
+			createPart({
+				Name = "SolarSail_" .. w,
+				Size = Vector3.new(4.8 * s, 0.35 * s, 2.2 * s),
+				CFrame = CFrame.Angles(0, 0, a) * CFrame.new(4.2 * s, 0, 0) * CFrame.Angles(math.rad(22), 0, 0),
+				Color = mainCol,
+				Material = Enum.Material.Neon,
+				Parent = m,
+			})
+		end
+	elseif companionId == "CryoSentinel" then
+		-- Glacial Monolith Core with 3 Orbiting Ice Shards & Long Cryo-Lance Barrel
+		createPart({
+			Name = "CryoLanceBarrel",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(4.5 * s, 1.1 * s, 1.1 * s),
+			CFrame = CFrame.new(0, 0, -3.2 * s) * CFrame.Angles(0, math.rad(90), 0),
+			Color = mainCol,
+			Material = Enum.Material.Glacier,
+			Parent = m,
+		})
+		for k = 1, 3 do
+			local a = (k / 3) * math.pi * 2
+			createWedge({
+				Name = "CryoFin_" .. k,
+				Size = Vector3.new(1.0 * s, 4.6 * s, 2.2 * s),
+				CFrame = CFrame.Angles(0, 0, a) * CFrame.new(0, 3.2 * s, 0.6 * s),
+				Color = mainCol,
+				Material = Enum.Material.Glacier,
+				Parent = m,
+			})
+		end
+	elseif companionId == "PulsarValkyrie" then
+		-- Swept-Wing Strike Fighter with Twin Plasma Cannons
+		for _, side in ipairs({ -1, 1 }) do
+			createWedge({
+				Name = "ValkyrieWing_" .. side,
+				Size = Vector3.new(0.6 * s, 3.4 * s, 6.2 * s),
+				CFrame = CFrame.new(side * 3.8 * s, 0.3 * s, 0.6 * s) * CFrame.Angles(0, math.rad(side * 18), math.rad(side * 75)),
+				Color = mainCol,
+				Material = Enum.Material.Slate,
+				Parent = m,
+			})
+			createPart({
+				Name = "ValkyrieCannon_" .. side,
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(4.2 * s, 0.85 * s, 0.85 * s),
+				CFrame = CFrame.new(side * 2.4 * s, -0.8 * s, -2.0 * s) * CFrame.Angles(0, math.rad(90), 0),
+				Color = beamCol,
+				Material = Enum.Material.Neon,
+				Parent = m,
+			})
+		end
+	elseif companionId == "DarkMatterCherub" then
+		-- Void-Rift Excavator: Glowing Singularity Core inside 4 Graviton Claws
+		body.Color = Color3.fromRGB(28, 22, 42)
+		body.Material = Enum.Material.Basalt
+		createPart({
+			Name = "VoidHalo",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(0.5 * s, 6.8 * s, 6.8 * s),
+			CFrame = CFrame.Angles(math.rad(25), 0, math.rad(90)),
+			Color = mainCol,
+			Material = Enum.Material.Neon,
+			Parent = m,
+		})
+		for c = 1, 4 do
+			local a = (c / 4) * math.pi * 2 + 0.4
+			createWedge({
+				Name = "GravitonClaw_" .. c,
+				Size = Vector3.new(0.9 * s, 3.6 * s, 1.8 * s),
+				CFrame = CFrame.Angles(0, 0, a) * CFrame.new(0, 2.8 * s, -1.6 * s) * CFrame.Angles(math.rad(-25), 0, 0),
+				Color = mainCol,
+				Material = Enum.Material.Slate,
+				Parent = m,
+			})
+		end
+	elseif companionId == "QuantumSeraph" then
+		-- LEGENDARY: 6 Seraphic Energy Wings + Dual Interlocking Gyro Rings
+		for r = 1, 2 do
+			createPart({
+				Name = "SeraphRing_" .. r,
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(0.45 * s, 6.6 * s, 6.6 * s),
+				CFrame = CFrame.Angles(math.rad(r == 1 and 35 or -35), 0, math.rad(90)),
+				Color = mainCol,
+				Material = Enum.Material.Neon,
+				Parent = m,
+			})
+		end
+		for w = 1, 6 do
+			local side = (w <= 3) and -1 or 1
+			local idx = ((w - 1) % 3) + 1
+			createWedge({
+				Name = "SeraphFeather_" .. w,
+				Size = Vector3.new(0.5 * s, (4.8 - idx * 0.7) * s, 1.6 * s),
+				CFrame = CFrame.new(side * (2.6 + idx * 1.1) * s, (1.4 - idx * 0.6) * s, 0.8 * s)
+					* CFrame.Angles(0, 0, math.rad(side * (42 + idx * 14))),
+				Color = mainCol,
+				Material = Enum.Material.Neon,
+				Parent = m,
+			})
+		end
+	elseif companionId == "ChronosDragon" then
+		-- LEGENDARY: Sculpted Golden Dragon Head + Horns + Side Wyrm Wings
+		body.Size = Vector3.new(4.6 * s, 4.0 * s, 5.6 * s)
+		body.Color = Color3.fromRGB(48, 38, 28)
+		for _, side in ipairs({ -1, 1 }) do
+			createWedge({
+				Name = "DragonHorn_" .. side,
+				Size = Vector3.new(1.1 * s, 4.8 * s, 1.4 * s),
+				CFrame = CFrame.new(side * 1.6 * s, 2.4 * s, 1.4 * s) * CFrame.Angles(math.rad(-38), 0, math.rad(-side * 18)),
+				Color = mainCol,
+				Material = Enum.Material.Neon,
+				Parent = m,
+			})
+			createWedge({
+				Name = "DragonWing_" .. side,
+				Size = Vector3.new(0.7 * s, 4.2 * s, 7.2 * s),
+				CFrame = CFrame.new(side * 4.4 * s, 0.8 * s, 0.8 * s) * CFrame.Angles(0, math.rad(side * 15), math.rad(side * 72)),
+				Color = mainCol,
+				Material = Enum.Material.Sandstone,
+				Parent = m,
+			})
+		end
+	else
+		-- MYTHIC (OmniverseEye / SingularityArchon): Colossal Multi-Ringed Apex Dreadnought
+		body.Size = Vector3.new(5.2 * s, 5.2 * s, 5.2 * s)
+		body.Material = Enum.Material.Neon
+		body.Color = mainCol
+		for r = 1, 3 do
+			createPart({
+				Name = "MythicGyro_" .. r,
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(0.55 * s, (7.4 + r * 0.8) * s, (7.4 + r * 0.8) * s),
+				CFrame = CFrame.Angles(math.rad(r * 55), math.rad(r * 35), math.rad(90)),
+				Color = (r == 2) and Color3.fromRGB(32, 34, 48) or mainCol,
+				Material = (r == 2) and Enum.Material.Basalt or Enum.Material.Neon,
+				Parent = m,
+			})
+		end
+		for p = 1, 6 do
+			local a = (p / 6) * math.pi * 2
+			createWedge({
+				Name = "MythicCrownSpike_" .. p,
+				Size = Vector3.new(1.1 * s, 4.8 * s, 1.8 * s),
+				CFrame = CFrame.Angles(0, 0, a) * CFrame.new(0, 4.6 * s, 0),
+				Color = mainCol,
+				Material = Enum.Material.Neon,
+				Parent = m,
+			})
+		end
 	end
-
-	createPart({
-		Name = "DroneHalo",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(0.4, 5.8, 5.8),
-		CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(0, 0, math.rad(90)),
-		Color = mainCol,
-		Material = Enum.Material.Limestone,
-		Parent = m,
-	})
 
 	return m
 end
@@ -1454,39 +1783,62 @@ function PlanetGenerator.BuildPlanetModel(
 		end
 	end
 
-	-- 8. Overhead Name & Civilization Status Billboard
+	-- 8. Sleek Sci-Fi Overhead Name & Civilization Status Callout
 	if not hideBillboard then
 		local billboard = Instance.new("BillboardGui")
 		billboard.Name = "PlanetHUDTag"
 		billboard.Adornee = root
-		billboard.Size = UDim2.new(0, 280, 0, 64)
-		billboard.StudsOffset = Vector3.new(0, radius * 1.45, 0)
+		billboard.Size = UDim2.new(0, 210, 0, 44)
+		billboard.StudsOffset = Vector3.new(0, radius * 1.48, 0)
 		billboard.AlwaysOnTop = false
-		billboard.MaxDistance = 900
+		billboard.LightInfluence = 0
+		billboard.MaxDistance = 420
 		billboard.Parent = root
+
+		local tagCard = Instance.new("Frame")
+		tagCard.Size = UDim2.fromScale(1, 1)
+		tagCard.BackgroundColor3 = Color3.fromRGB(8, 12, 22)
+		tagCard.BackgroundTransparency = 0.22
+		tagCard.Parent = billboard
+		local tc = Instance.new("UICorner")
+		tc.CornerRadius = UDim.new(0, 7)
+		tc.Parent = tagCard
+		local ts = Instance.new("UIStroke")
+		ts.Color = cityGlow
+		ts.Thickness = 1.2
+		ts.Transparency = 0.35
+		ts.Parent = tagCard
+
+		local topBar = Instance.new("Frame")
+		topBar.Size = UDim2.new(1, -16, 0, 2)
+		topBar.Position = UDim2.new(0, 8, 0, 0)
+		topBar.BackgroundColor3 = cityGlow
+		topBar.BorderSizePixel = 0
+		topBar.Parent = tagCard
 
 		local titleLabel = Instance.new("TextLabel")
 		titleLabel.Name = "TitleLabel"
-		titleLabel.Size = UDim2.new(1, 0, 0.55, 0)
+		titleLabel.Size = UDim2.new(1, -14, 0, 20)
+		titleLabel.Position = UDim2.new(0, 7, 0, 4)
 		titleLabel.BackgroundTransparency = 1
-		titleLabel.Text = string.format("%s [%s]", safeLook.PlanetName or playerName, pType.Name)
-		titleLabel.TextColor3 = Color3.fromRGB(245, 248, 255)
-		titleLabel.TextStrokeTransparency = 0.15
-		titleLabel.Font = Enum.Font.FredokaOne
-		titleLabel.TextScaled = true
-		titleLabel.Parent = billboard
+		titleLabel.Text = string.upper(string.format("%s • %s", safeLook.PlanetName or playerName, pType.Name))
+		titleLabel.TextColor3 = Color3.fromRGB(240, 246, 255)
+		titleLabel.Font = Enum.Font.GothamBlack
+		titleLabel.TextSize = 11
+		titleLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		titleLabel.Parent = tagCard
 
 		local subLabel = Instance.new("TextLabel")
 		subLabel.Name = "SubLabel"
-		subLabel.Position = UDim2.new(0, 0, 0.55, 0)
-		subLabel.Size = UDim2.new(1, 0, 0.45, 0)
+		subLabel.Position = UDim2.new(0, 7, 0, 23)
+		subLabel.Size = UDim2.new(1, -14, 0, 16)
 		subLabel.BackgroundTransparency = 1
-		subLabel.Text = string.format("%s • %s", species.Name, evoNode.Name)
+		subLabel.Text = string.format("%s // %s", species.Name, evoNode.Name)
 		subLabel.TextColor3 = cityGlow
-		subLabel.TextStrokeTransparency = 0.2
-		subLabel.Font = Enum.Font.GothamBold
-		subLabel.TextScaled = true
-		subLabel.Parent = billboard
+		subLabel.Font = Enum.Font.GothamMedium
+		subLabel.TextSize = 10
+		subLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		subLabel.Parent = tagCard
 	end
 
 	return model

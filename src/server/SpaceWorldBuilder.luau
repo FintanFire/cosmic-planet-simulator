@@ -60,51 +60,75 @@ local function makePersistentModel(name: string, parent: Instance): Model
 	return m
 end
 
-local function makeMachineBillboard(adornee: BasePart, title: string, subtitle: string, color: Color3, offsetY: number)
+local function makeMachineBillboard(adornee: BasePart, title: string, subtitle: string, color: Color3, offsetY: number, maxDist: number?)
 	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.new(62, 0, 14, 0)
+	bb.Name = "StylizedMachineCallout"
+	bb.Size = UDim2.new(0, 260, 0, 56)
 	bb.StudsOffset = Vector3.new(0, offsetY, 0)
 	bb.AlwaysOnTop = false
-	bb.MaxDistance = 850
+	bb.MaxDistance = maxDist or 440
 	bb.LightInfluence = 0
 	bb.Adornee = adornee
 	bb.Parent = adornee
 
 	local bg = Instance.new("Frame")
 	bg.Size = UDim2.new(1, 0, 1, 0)
-	bg.BackgroundColor3 = Color3.fromRGB(16, 20, 32)
-	bg.BackgroundTransparency = 0.15
+	bg.BackgroundColor3 = Color3.fromRGB(8, 12, 22)
+	bg.BackgroundTransparency = 0.16
 	bg.Parent = bb
 
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0.16, 0)
+	corner.CornerRadius = UDim.new(0, 8)
 	corner.Parent = bg
 
 	local stroke = Instance.new("UIStroke")
 	stroke.Color = color
-	stroke.Thickness = 2
+	stroke.Thickness = 1.4
+	stroke.Transparency = 0.25
 	stroke.Parent = bg
 
+	-- Sleek left vertical accent bar
+	local leftBar = Instance.new("Frame")
+	leftBar.Size = UDim2.new(0, 4, 1, -12)
+	leftBar.Position = UDim2.new(0, 6, 0, 6)
+	leftBar.BackgroundColor3 = color
+	leftBar.BorderSizePixel = 0
+	leftBar.Parent = bg
+	local lbc = Instance.new("UICorner")
+	lbc.CornerRadius = UDim.new(1, 0)
+	lbc.Parent = leftBar
+
+	-- Subtle top specular highlight line
+	local topGlow = Instance.new("Frame")
+	topGlow.Size = UDim2.new(1, -24, 0, 1)
+	topGlow.Position = UDim2.new(0, 12, 0, 0)
+	topGlow.BackgroundColor3 = color
+	topGlow.BackgroundTransparency = 0.45
+	topGlow.BorderSizePixel = 0
+	topGlow.Parent = bg
+
 	local t = Instance.new("TextLabel")
-	t.Size = UDim2.new(1, -16, 0.54, 0)
-	t.Position = UDim2.new(0, 8, 0, 4)
+	t.Size = UDim2.new(1, -24, 0, 22)
+	t.Position = UDim2.new(0, 16, 0, 6)
 	t.BackgroundTransparency = 1
-	t.Text = title
-	t.TextColor3 = color
-	t.TextStrokeTransparency = 0.15
-	t.Font = Enum.Font.FredokaOne
-	t.TextScaled = true
+	t.Text = string.upper(title)
+	t.TextColor3 = Color3.fromRGB(242, 247, 255)
+	t.Font = Enum.Font.GothamBlack
+	t.TextSize = 13
+	t.TextXAlignment = Enum.TextXAlignment.Left
+	t.TextTruncate = Enum.TextTruncate.AtEnd
 	t.Parent = bg
 
 	local s = Instance.new("TextLabel")
-	s.Position = UDim2.new(0, 8, 0.55, 0)
-	s.Size = UDim2.new(1, -16, 0.38, 0)
+	s.Position = UDim2.new(0, 16, 0, 28)
+	s.Size = UDim2.new(1, -24, 0, 22)
 	s.BackgroundTransparency = 1
 	s.Text = subtitle
-	s.TextColor3 = Color3.fromRGB(220, 228, 242)
-	s.TextStrokeTransparency = 0.25
-	s.Font = Enum.Font.GothamBold
-	s.TextScaled = true
+	s.TextColor3 = color
+	s.Font = Enum.Font.GothamMedium
+	s.TextSize = 10
+	s.TextWrapped = true
+	s.TextXAlignment = Enum.TextXAlignment.Left
 	s.Parent = bg
 end
 
@@ -656,15 +680,150 @@ function SpaceWorldBuilder.BuildCosmos(): Model
 		Transparency = 0.45,
 		Parent = hubModel,
 	})
+	warpPortal:SetAttribute("HubMachineId", "WarpGate")
 	makeMachineBillboard(
 		warpPortal,
-		"🌀 STARFARER WARP & ASCENSION GATE",
-		"FLY NEAR & PRESS [E] OR CLICK [🌀 STATIONS] TO TELEPORT OR ASCEND!",
+		"STARFARER WARP & ASCENSION GATE",
+		"PRESS [E] OR CLICK [STATIONS] TO TELEPORT OR ASCEND",
 		Color3.fromRGB(205, 135, 255),
-		52
+		46,
+		420
 	)
 
-	-- Animate the Central Dyson Star & Counter-Rotating Gyroscopic Containment Rings
+	-- ========================================================================
+	-- D. EAST PLAZA (`420, 0, 0`): ORBITAL DRONE FOUNDRY & ROLL BAY
+	-- ========================================================================
+	local eastPos = Vector3.new(hubRingRadius, 0, 0)
+	buildMachinePlaza("DroneFoundryPlaza", eastPos, Enum.Material.Concrete, SLATE_MID)
+
+	-- Central Foundry Reactor Pedestal & Gantry Ring
+	makePart({
+		Name = "FoundryCentralBase",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(10, 56, 56),
+		CFrame = CFrame.new(eastPos + Vector3.new(0, 5, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = BASALT_DARK,
+		Material = Enum.Material.Basalt,
+		Parent = hubModel,
+	})
+	makePart({
+		Name = "FoundryTrimRing",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(3, 60, 60),
+		CFrame = CFrame.new(eastPos + Vector3.new(0, 10, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = Color3.fromRGB(56, 215, 255),
+		Material = Enum.Material.Neon,
+		Parent = hubModel,
+	})
+
+	-- 4 Angled Robotic Gantry Arms converging above the Foundry Core
+	local foundryCorePos = eastPos + Vector3.new(0, 38, 0)
+	for g = 1, 4 do
+		local ga = (g / 4) * math.pi * 2 + math.pi * 0.25
+		local gBase = eastPos + Vector3.new(math.cos(ga) * 44, 4, math.sin(ga) * 44)
+		local gTop = eastPos + Vector3.new(math.cos(ga) * 24, 54, math.sin(ga) * 24)
+		local gLen = (gTop - gBase).Magnitude
+		makePart({
+			Name = "FoundryGantryArm_" .. g,
+			Size = Vector3.new(7, 7, gLen),
+			CFrame = CFrame.lookAt((gBase + gTop) * 0.5, gTop),
+			Color = BASALT_DARK,
+			Material = Enum.Material.Basalt,
+			Parent = hubModel,
+		})
+		makePart({
+			Name = "FoundryGantryEmitter_" .. g,
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.new(8, 8, 8),
+			CFrame = CFrame.new(gTop),
+			Color = Color3.fromRGB(56, 215, 255),
+			Material = Enum.Material.Neon,
+			Parent = hubModel,
+		})
+	end
+
+	local droneFoundryCore = makePart({
+		Name = "DroneFoundryCore",
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.new(24, 24, 24),
+		CFrame = CFrame.new(foundryCorePos),
+		Color = Color3.fromRGB(56, 215, 255),
+		Material = Enum.Material.Neon,
+		Transparency = 0.2,
+		Parent = hubModel,
+	})
+	droneFoundryCore:SetAttribute("HubMachineId", "DroneBay")
+	makeMachineBillboard(
+		droneFoundryCore,
+		"ORBITAL DRONE FOUNDRY & ROLL BAY",
+		"PRESS [E] OR CLICK TO ROLL DRONES WITH RESOURCES & UPGRADE SLOTS",
+		Color3.fromRGB(56, 215, 255),
+		34,
+		460
+	)
+
+	-- 4 Physical Tiered Drone Roll Pods around the East Plaza (Display 3D Drone Models inside!)
+	local podShowcaseDrones = { "SputnikMiner", "QuartzCutter", "QuantumSeraph", "OmniverseEye" }
+	for pIdx, podDef in ipairs(PlanetConfig.CompanionPods) do
+		local pa = ((pIdx - 2.5) * 0.52) + math.pi -- Arc facing inward toward the Hub bridge (-X)
+		local podPos = eastPos + Vector3.new(math.cos(pa) * 46, 0, math.sin(pa) * 46)
+		makePart({
+			Name = "DronePodPedestal_" .. podDef.Id,
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(6, 18, 18),
+			CFrame = CFrame.new(podPos + Vector3.new(0, 3, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+			Color = BASALT_DARK,
+			Material = Enum.Material.Basalt,
+			Parent = hubModel,
+		})
+		local podChamber = makePart({
+			Name = "DronePodChamber_" .. podDef.Id,
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(22, 14, 14),
+			CFrame = CFrame.new(podPos + Vector3.new(0, 16, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+			Color = podDef.Color,
+			Material = Enum.Material.Neon,
+			Transparency = 0.68,
+			Parent = hubModel,
+		})
+		podChamber:SetAttribute("HubMachineId", "DroneBay")
+		podChamber:SetAttribute("DronePodId", podDef.Id)
+		makePart({
+			Name = "DronePodCap_" .. podDef.Id,
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(4, 18, 18),
+			CFrame = CFrame.new(podPos + Vector3.new(0, 28, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+			Color = SLATE_MID,
+			Material = Enum.Material.Concrete,
+			Parent = hubModel,
+		})
+
+		-- Place a 3D Hologram Drone inside each Roll Pod
+		local sampleDroneId = podShowcaseDrones[pIdx] or "ScrapWelder"
+		local sampleModel = PlanetGenerator.BuildCompanionDroneModel(sampleDroneId, pIdx == 4, pIdx * 5)
+		sampleModel.Name = "PodDisplayDrone_" .. podDef.Id
+		sampleModel:PivotTo(CFrame.new(podPos + Vector3.new(0, 16, 0)) * CFrame.Angles(0, pa, 0))
+		sampleModel.Parent = hubModel
+
+		local costParts = {}
+		if type(podDef.Cost) == "table" then
+			for rKey, rAmt in pairs(podDef.Cost) do
+				local rMeta = PlanetConfig.ResourceMeta and PlanetConfig.ResourceMeta[rKey]
+				local shortName = rMeta and rMeta.ShortName or rKey
+				table.insert(costParts, string.format("%s %s", PlanetConfig.FormatNumber(rAmt), shortName))
+			end
+		end
+		makeMachineBillboard(
+			podChamber,
+			podDef.Name,
+			"COST: " .. table.concat(costParts, " + "),
+			podDef.Color,
+			22,
+			220
+		)
+	end
+
+	-- Animate the Central Dyson Star, Gyroscopic Rings & Drone Foundry Core
 	task.spawn(function()
 		local t = 0
 		while hubModel.Parent do
@@ -677,6 +836,8 @@ function SpaceWorldBuilder.BuildCosmos(): Model
 				gyroRing2:PivotTo(CFrame.new(starPos) * CFrame.Angles(-t * 0.58, -t * 0.36, math.rad(-48)))
 			end
 			nexusCore.CFrame = CFrame.new(starPos + Vector3.new(0, math.sin(t * 1.2) * 2, 0))
+			droneFoundryCore.CFrame = CFrame.new(foundryCorePos + Vector3.new(0, math.sin(t * 1.8) * 1.5, 0))
+				* CFrame.Angles(0, t * 0.6, 0)
 		end
 	end)
 
@@ -863,13 +1024,18 @@ function SpaceWorldBuilder.BuildCosmos(): Model
 end
 
 -- ============================================================================
--- 6. DISTANCE-TIERED PROCEDURAL SPACE CHUNK GENERATOR (Better Materials Further Out!)
+-- 6. DISTANCE-TIERED PROCEDURAL SPACE CHUNK GENERATOR (HP-Scaled Materials & Enemies!)
 -- ============================================================================
 local CHUNK_SIZE = 550
 local COLLECTIBLE_COLORS: { [string]: Color3 } = {
-	StarGems = Color3.fromRGB(95, 235, 255),
-	PopulationPod = Color3.fromRGB(255, 215, 95),
-	SupernovaChest = Color3.fromRGB(255, 145, 55),
+	Minerals = Color3.fromRGB(255, 165, 65),
+	Biomass = Color3.fromRGB(85, 235, 135),
+	Energy = Color3.fromRGB(65, 215, 255),
+	Tech = Color3.fromRGB(195, 115, 255),
+	StarGems = Color3.fromRGB(56, 235, 255),
+	PopulationPod = Color3.fromRGB(125, 235, 195),
+	SupernovaChest = Color3.fromRGB(255, 215, 65),
+	SpaceEnemy = Color3.fromRGB(255, 75, 95),
 }
 
 local CHUNK_STAR_COLORS = {
@@ -884,7 +1050,13 @@ local function getChunkKey(cx: number, cy: number, cz: number): string
 end
 
 local function isTooCloseToHubOrStation(pos: Vector3): boolean
-	if pos.Magnitude < 210 then
+	-- Keep central Dyson Star Citadel (r < 140) and East/West Plazas clear,
+	-- while allowing starter asteroids around the Sanctuary Orbit!
+	local flatDist = Vector2.new(pos.X, pos.Z).Magnitude
+	if flatDist < 145 and math.abs(pos.Y) < 95 then
+		return true
+	end
+	if (pos - Vector3.new(420, 18, 0)).Magnitude < 95 or (pos - Vector3.new(-420, 18, 0)).Magnitude < 95 then
 		return true
 	end
 	for _, st in ipairs(PlanetConfig.SpaceStations) do
@@ -893,6 +1065,46 @@ local function isTooCloseToHubOrStation(pos: Vector3): boolean
 		end
 	end
 	return false
+end
+
+local function attachNodeAttributes(colModel: Model, resType: string, zoneDef: any, rng: Random)
+	local matDef = (PlanetConfig.MaterialNodes and PlanetConfig.MaterialNodes[resType])
+		or PlanetConfig.MaterialNodes.Minerals
+	local hpMult = matDef.HPMult or 1.0
+	local drillMult = matDef.DrillReqMult or 1.0
+	local valMult = matDef.ValueMult or 1.0
+
+	local baseHP = zoneDef.BaseHP or 35
+	local maxHP = math.max(15, math.floor(baseHP * hpMult * rng:NextNumber(0.92, 1.12) + 0.5))
+	local reqDrill = math.max(1, math.floor((zoneDef.ReqDrill or 1) * drillMult + 0.5))
+	local nodeTitle = (resType == "SpaceEnemy") and (zoneDef.EnemyName or "Rogue Pirate Drone")
+		or ((zoneDef.NodeNames and (zoneDef.NodeNames :: any)[resType]) or matDef.BaseTitle or "Space Asteroid")
+
+	colModel:SetAttribute("IsSpaceCollectible", true)
+	colModel:SetAttribute("ResourceType", resType)
+	colModel:SetAttribute("NodeTitle", nodeTitle)
+	colModel:SetAttribute("ZoneTier", zoneDef.Tier)
+	colModel:SetAttribute("MaxHP", maxHP)
+	colModel:SetAttribute("HP", maxHP)
+	colModel:SetAttribute("ReqDrill", reqDrill)
+	colModel:SetAttribute("Available", true)
+
+	local rootPart = colModel.PrimaryPart
+	if rootPart then
+		rootPart:SetAttribute("IsSpaceCollectible", true)
+		rootPart:SetAttribute("ResourceType", resType)
+		rootPart:SetAttribute("NodeTitle", nodeTitle)
+		rootPart:SetAttribute("ZoneTier", zoneDef.Tier)
+		rootPart:SetAttribute("MaxHP", maxHP)
+		rootPart:SetAttribute("HP", maxHP)
+		rootPart:SetAttribute("ReqDrill", reqDrill)
+		rootPart:SetAttribute("BaseNodeValue", math.floor((zoneDef.BaseNodeValue or 18) * valMult))
+		rootPart:SetAttribute("BaseResourceYield", math.floor((zoneDef.BaseResourceYield or 14) * valMult))
+		rootPart:SetAttribute("YieldMultiplier", zoneDef.YieldMultiplier or 1.0)
+		rootPart:SetAttribute("GemMin", math.max(1, math.floor(zoneDef.GemRange[1] * (matDef.GemMult or 1.0))))
+		rootPart:SetAttribute("GemMax", math.max(2, math.floor(zoneDef.GemRange[2] * (matDef.GemMult or 1.0))))
+		rootPart:SetAttribute("Available", true)
+	end
 end
 
 local function spawnProceduralChunk(cx: number, cy: number, cz: number)
@@ -911,12 +1123,31 @@ local function spawnProceduralChunk(cx: number, cy: number, cz: number)
 
 	local chunkOrigin = Vector3.new(cx * CHUNK_SIZE, cy * 320, cz * CHUNK_SIZE)
 
-	-- Spawn 5 to 7 distance-tiered collectible space objects per chunk
-	local itemCount = rng:NextInteger(5, 7)
+	-- Special Starter Ring in the central chunk (0, 0, 0) so players starting with 0 resources
+	-- immediately have Titanium Ore & Solar Flux asteroids right outside the Hub spawn!
+	if cx == 0 and cy == 0 and cz == 0 then
+		local z1 = PlanetConfig.DeepSpaceZones[1]
+		local starterTypes = { "Minerals", "Minerals", "Energy", "Minerals", "Biomass", "Minerals", "StarGems", "Energy", "SpaceEnemy", "Minerals" }
+		for idx, sType in ipairs(starterTypes) do
+			local angle = (idx / #starterTypes) * math.pi * 2 + 0.35
+			local rDist = 250 + (idx % 3) * 45
+			local sPos = Vector3.new(math.cos(angle) * rDist, 32 + ((idx % 2 == 0) and 18 or -12), math.sin(angle) * rDist)
+			if not isTooCloseToHubOrStation(sPos) then
+				local baseCol = COLLECTIBLE_COLORS[sType] or z1.ThemeColor
+				local nodeTitle = (z1.NodeNames and (z1.NodeNames :: any)[sType]) or "Starter Asteroid"
+				local colModel = PlanetGenerator.BuildSpaceCollectibleModel(sType, sPos, nodeTitle, baseCol, 1)
+				attachNodeAttributes(colModel, sType, z1, rng)
+				colModel.Parent = chunkModel
+			end
+		end
+	end
+
+	-- Spawn 6 to 8 distance-tiered asteroids, geodes, relics, vaults & hostile rogue enemies per chunk
+	local itemCount = rng:NextInteger(6, 8)
 	for _ = 1, itemCount do
 		local pos = chunkOrigin + Vector3.new(
 			rng:NextNumber(-CHUNK_SIZE * 0.45, CHUNK_SIZE * 0.45),
-			rng:NextNumber(-120, 120),
+			rng:NextNumber(-115, 115),
 			rng:NextNumber(-CHUNK_SIZE * 0.45, CHUNK_SIZE * 0.45)
 		)
 
@@ -925,16 +1156,27 @@ local function spawnProceduralChunk(cx: number, cy: number, cz: number)
 			local zoneDef = PlanetConfig.GetZoneForDistance(dist)
 
 			local roll = rng:NextInteger(1, 100)
-			local resType = "StarGems"
-			if roll <= 68 then
+			local resType = "Minerals"
+			if roll <= 28 then
+				resType = "Minerals"
+			elseif roll <= 46 then
+				resType = "Energy"
+			elseif roll <= 62 then
+				resType = "Biomass"
+			elseif roll <= 74 then
+				resType = "Tech"
+			elseif roll <= 85 then
 				resType = "StarGems"
-			elseif roll <= 88 then
+			elseif roll <= 92 then
+				resType = "SpaceEnemy"
+			elseif roll <= 96 then
 				resType = "PopulationPod"
 			else
 				resType = "SupernovaChest"
 			end
 
-			local nodeTitle = (zoneDef.NodeNames and (zoneDef.NodeNames :: any)[resType]) or "Cosmic Anomaly"
+			local nodeTitle = (resType == "SpaceEnemy") and (zoneDef.EnemyName or "Rogue Pirate Drone")
+				or ((zoneDef.NodeNames and (zoneDef.NodeNames :: any)[resType]) or "Cosmic Asteroid")
 			local baseCol = COLLECTIBLE_COLORS[resType] or zoneDef.ThemeColor
 
 			local colModel = PlanetGenerator.BuildSpaceCollectibleModel(
@@ -944,33 +1186,21 @@ local function spawnProceduralChunk(cx: number, cy: number, cz: number)
 				baseCol,
 				zoneDef.Tier
 			)
-			local rootPart = colModel.PrimaryPart
-			if rootPart then
-				rootPart:SetAttribute("IsSpaceCollectible", true)
-				rootPart:SetAttribute("ResourceType", resType)
-				rootPart:SetAttribute("NodeTitle", nodeTitle)
-				rootPart:SetAttribute("ZoneTier", zoneDef.Tier)
-				rootPart:SetAttribute("ReqDrill", 0)
-				rootPart:SetAttribute("BaseNodeValue", zoneDef.BaseNodeValue)
-				rootPart:SetAttribute("YieldMultiplier", zoneDef.YieldMultiplier)
-				rootPart:SetAttribute("GemMin", zoneDef.GemRange[1])
-				rootPart:SetAttribute("GemMax", zoneDef.GemRange[2])
-				rootPart:SetAttribute("Available", true)
-			end
+			attachNodeAttributes(colModel, resType, zoneDef, rng)
 			colModel.Parent = chunkModel
 		end
 	end
 
-	-- Scatter 16 procedural deep-space stars inside every chunk so infinite space is always naturally starry!
-	for s = 1, 16 do
+	-- Optimized: 4 distant stars per chunk (reduced from 16 to eliminate instance bloat!)
+	for s = 1, 4 do
 		local sPos = chunkOrigin + Vector3.new(
-			rng:NextNumber(-CHUNK_SIZE * 0.49, CHUNK_SIZE * 0.49),
-			rng:NextNumber(-220, 220),
-			rng:NextNumber(-CHUNK_SIZE * 0.49, CHUNK_SIZE * 0.49)
+			rng:NextNumber(-CHUNK_SIZE * 0.48, CHUNK_SIZE * 0.48),
+			rng:NextNumber(-200, 200),
+			rng:NextNumber(-CHUNK_SIZE * 0.48, CHUNK_SIZE * 0.48)
 		)
-		if sPos.Magnitude > 520 then
-			local isBright = (s % 5 == 0)
-			local sz = isBright and rng:NextNumber(4.5, 8.5) or rng:NextNumber(1.6, 3.6)
+		if sPos.Magnitude > 540 then
+			local isBright = (s == 1)
+			local sz = isBright and rng:NextNumber(5.0, 8.5) or rng:NextNumber(2.0, 3.8)
 			local sCol = CHUNK_STAR_COLORS[rng:NextInteger(1, #CHUNK_STAR_COLORS)]
 			local sp = makePart({
 				Name = "ChunkStar_" .. s,
@@ -982,7 +1212,7 @@ local function spawnProceduralChunk(cx: number, cy: number, cz: number)
 				Parent = chunkModel,
 			})
 			if isBright then
-				attachStarPngSprite(sp, sCol, sz * 3.0, 6000)
+				attachStarPngSprite(sp, sCol, sz * 2.8, 5500)
 			end
 		end
 	end
