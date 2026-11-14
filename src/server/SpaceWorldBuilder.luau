@@ -485,14 +485,6 @@ function SpaceWorldBuilder.BuildCosmos(): Model
 	local gyroRing1 = buildGyroRing("DysonGyroRingOuter", 44, Enum.Material.Basalt, BASALT_DARK)
 	local gyroRing2 = buildGyroRing("DysonGyroRingInner", 34, Enum.Material.Sandstone, SANDSTONE_TRIM)
 
-	makeMachineBillboard(
-		nexusCore,
-		"⚡ MACHINE 1: DYSON STAR-REACTOR",
-		"FLY NEAR & PRESS [E] OR CLICK [⚡ REACTOR] TO OVERCLOCK ENERGY!",
-		Color3.fromRGB(255, 220, 95),
-		34
-	)
-
 	-- B. GRAND ORBITAL CONCOURSE RING (`Radius = 420` Studs) & 4 RADIAL STONE BRIDGES
 	local ringSegments = 64
 	local ringSegLen = (2 * math.pi * hubRingRadius) / ringSegments * 1.04
@@ -580,7 +572,7 @@ function SpaceWorldBuilder.BuildCosmos(): Model
 	end
 
 	-- ========================================================================
-	-- C. 4 COLOSSAL HUB MACHINES ON THE ORBITAL CONCOURSE (Realistic Materials!)
+	-- C. STARFARER WARP GATE & ASCENSION MONOLITH ON THE ORBITAL CONCOURSE
 	-- ========================================================================
 
 	-- Helper to build a Machine Plaza Platform
@@ -614,254 +606,7 @@ function SpaceWorldBuilder.BuildCosmos(): Model
 		})
 	end
 
-	-- 1. NORTH MACHINE (`0, 0, -420`): 🔭 ASTRAL QUANTUM OBSERVATORY (Limestone, Concrete & Slate)
-	local northPos = Vector3.new(0, 0, -hubRingRadius)
-	buildMachinePlaza("ObservatoryPlaza", northPos, Enum.Material.Cobblestone, LIMESTONE_PALE)
-
-	makePart({
-		Name = "ObservatoryDrumWall",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(28, 76, 76),
-		CFrame = CFrame.new(northPos + Vector3.new(0, 14, 0)) * CFrame.Angles(0, 0, math.rad(90)),
-		Color = LIMESTONE_PALE,
-		Material = Enum.Material.Limestone,
-		Parent = hubModel,
-	})
-	local obsDome = makePart({
-		Name = "ObservatoryRotundaDome",
-		Shape = Enum.PartType.Ball,
-		Size = Vector3.new(74, 58, 74),
-		CFrame = CFrame.new(northPos + Vector3.new(0, 26, 0)),
-		Color = CONCRETE_LIGHT,
-		Material = Enum.Material.Concrete,
-		Parent = hubModel,
-	})
-	-- Telescope Barrel (Matte Basalt & Slate)
-	local teleCF = CFrame.new(northPos + Vector3.new(0, 42, 16)) * CFrame.Angles(math.rad(-35), 0, 0)
-	makePart({
-		Name = "TelescopeMainTube",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(52, 18, 18),
-		CFrame = teleCF * CFrame.Angles(0, 0, math.rad(90)),
-		Color = BASALT_DARK,
-		Material = Enum.Material.Basalt,
-		Parent = hubModel,
-	})
-	makePart({
-		Name = "Telescope BrassTrim",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(6, 20, 20),
-		CFrame = teleCF * CFrame.new(0, 0, -22) * CFrame.Angles(0, 0, math.rad(90)),
-		Color = SANDSTONE_TRIM,
-		Material = Enum.Material.Sandstone,
-		Parent = hubModel,
-	})
-	local lensPart = makePart({
-		Name = "TelescopeObjectiveLens",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(2, 16.5, 16.5),
-		CFrame = teleCF * CFrame.new(0, 0, -25.5) * CFrame.Angles(0, 0, math.rad(90)),
-		Color = Color3.fromRGB(110, 185, 235),
-		Material = Enum.Material.Glacier,
-		Parent = hubModel,
-	})
-	-- 4 Stone Astrolabe Pillars around the Observatory
-	for p = 1, 4 do
-		local a = (p / 4) * math.pi * 2 + math.rad(45)
-		local pPos = northPos + Vector3.new(math.cos(a) * 50, 16, math.sin(a) * 50)
-		makePart({
-			Name = "ObservatoryPillar_" .. p,
-			Size = Vector3.new(8, 32, 8),
-			CFrame = CFrame.new(pPos),
-			Color = SANDSTONE_TRIM,
-			Material = Enum.Material.Sandstone,
-			Parent = hubModel,
-		})
-		makePart({
-			Name = "ObservatoryGlobe_" .. p,
-			Shape = Enum.PartType.Ball,
-			Size = Vector3.new(10, 10, 10),
-			CFrame = CFrame.new(pPos + Vector3.new(0, 20, 0)),
-			Color = SLATE_MID,
-			Material = Enum.Material.Slate,
-			Parent = hubModel,
-		})
-	end
-	makeMachineBillboard(
-		obsDome,
-		"🔭 MACHINE 4: ASTRAL QUANTUM OBSERVATORY",
-		"FLY NEAR & PRESS [E] OR CLICK [🔭 TECH LAB] FOR 1.80x TECH!",
-		Color3.fromRGB(130, 210, 255),
-		46
-	)
-	local _ = lensPart
-
-	-- 2. EAST MACHINE (`420, 0, 0`): ⚒️ TITAN MATTER-REFINERY & CORE FORGE (Basalt, DiamondPlate, Rock & Magma)
-	local eastPos = Vector3.new(hubRingRadius, 0, 0)
-	buildMachinePlaza("RefineryPlaza", eastPos, Enum.Material.DiamondPlate, SLATE_MID)
-
-	local furnaceCore = makePart({
-		Name = "TitanBlastFurnace",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(54, 52, 52),
-		CFrame = CFrame.new(eastPos + Vector3.new(-10, 26, 0)) * CFrame.Angles(0, 0, math.rad(90)),
-		Color = BASALT_DARK,
-		Material = Enum.Material.Basalt,
-		Parent = hubModel,
-	})
-	for band = 1, 3 do
-		makePart({
-			Name = "FurnaceReinforcementBand_" .. band,
-			Shape = Enum.PartType.Cylinder,
-			Size = Vector3.new(4, 55, 55),
-			CFrame = CFrame.new(eastPos + Vector3.new(-10, band * 14, 0)) * CFrame.Angles(0, 0, math.rad(90)),
-			Color = SANDSTONE_TRIM,
-			Material = Enum.Material.DiamondPlate,
-			Parent = hubModel,
-		})
-	end
-	-- Molten Smelting Crucible Vat in front of the furnace (Molten Lava -> CrackedLava + Neon core)
-	makePart({
-		Name = "CrucibleOuterWall",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(14, 38, 38),
-		CFrame = CFrame.new(eastPos + Vector3.new(26, 7, 0)) * CFrame.Angles(0, 0, math.rad(90)),
-		Color = BASALT_DARK,
-		Material = Enum.Material.Basalt,
-		Parent = hubModel,
-	})
-	makePart({
-		Name = "CrucibleMoltenMagma",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(15, 32, 32),
-		CFrame = CFrame.new(eastPos + Vector3.new(26, 7.5, 0)) * CFrame.Angles(0, 0, math.rad(90)),
-		Color = Color3.fromRGB(255, 115, 20),
-		Material = Enum.Material.CrackedLava,
-		Parent = hubModel,
-	})
-	-- Twin Industrial Smokestacks (Matte Concrete & Basalt)
-	for _, zOff in ipairs({ -32, 32 }) do
-		makePart({
-			Name = "RefinerySmokestack_" .. zOff,
-			Shape = Enum.PartType.Cylinder,
-			Size = Vector3.new(72, 16, 16),
-			CFrame = CFrame.new(eastPos + Vector3.new(-28, 36, zOff)) * CFrame.Angles(0, 0, math.rad(90)),
-			Color = SLATE_MID,
-			Material = Enum.Material.Concrete,
-			Parent = hubModel,
-		})
-		makePart({
-			Name = "SmokestackCap_" .. zOff,
-			Shape = Enum.PartType.Cylinder,
-			Size = Vector3.new(5, 19, 19),
-			CFrame = CFrame.new(eastPos + Vector3.new(-28, 72, zOff)) * CFrame.Angles(0, 0, math.rad(90)),
-			Color = BASALT_DARK,
-			Material = Enum.Material.Basalt,
-			Parent = hubModel,
-		})
-	end
-	-- Ore Conveyor Ramp with natural Rock & Limestone Ore Boulders
-	makePart({
-		Name = "OreConveyorBed",
-		Size = Vector3.new(14, 3, 76),
-		CFrame = CFrame.new(eastPos + Vector3.new(26, 4, 0)),
-		Color = BASALT_DARK,
-		Material = Enum.Material.DiamondPlate,
-		Parent = hubModel,
-	})
-	for k = -2, 2 do
-		makePart({
-			Name = "OreBoulder_" .. k,
-			Shape = Enum.PartType.Ball,
-			Size = Vector3.new(7, 6, 7),
-			CFrame = CFrame.new(eastPos + Vector3.new(26, 8, k * 14)),
-			Color = (k % 2 == 0) and SANDSTONE_TRIM or CONCRETE_LIGHT,
-			Material = (k % 2 == 0) and Enum.Material.Limestone or Enum.Material.Rock,
-			Parent = hubModel,
-		})
-	end
-	makeMachineBillboard(
-		furnaceCore,
-		"⚒️ MACHINE 2: TITAN MATTER-REFINERY",
-		"FLY NEAR & PRESS [E] OR CLICK [⚒️ REFINERY] FOR 1.75x MINERALS!",
-		Color3.fromRGB(255, 175, 55),
-		42
-	)
-
-	-- 3. SOUTH MACHINE (`0, 0, 420`): 🌿 GAIA BIO-SYNTHESIZER & TERRARIUM SANCTUARY (Grass, Wood, Soil & Stone)
-	local southPos = Vector3.new(0, 0, hubRingRadius)
-	buildMachinePlaza("BioSanctuaryPlaza", southPos, Enum.Material.Grass, Color3.fromRGB(58, 152, 68))
-
-	-- Central Ancient World-Tree & Botanical Pergola Arches (Natural Wood & LeafyGrass!)
-	makePart({
-		Name = "BioEarthMound",
-		Shape = Enum.PartType.Ball,
-		Size = Vector3.new(56, 16, 56),
-		CFrame = CFrame.new(southPos + Vector3.new(0, 2, 0)),
-		Color = Color3.fromRGB(96, 70, 46),
-		Material = Enum.Material.Ground,
-		Parent = hubModel,
-	})
-	local worldTreeTrunk = makePart({
-		Name = "WorldTreeTrunk",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(44, 16, 16),
-		CFrame = CFrame.new(southPos + Vector3.new(0, 24, 0)) * CFrame.Angles(0, 0, math.rad(90)),
-		Color = Color3.fromRGB(102, 68, 38),
-		Material = Enum.Material.Wood,
-		Parent = hubModel,
-	})
-	makePart({
-		Name = "WorldTreeMainCanopy",
-		Shape = Enum.PartType.Ball,
-		Size = Vector3.new(54, 28, 54),
-		CFrame = CFrame.new(southPos + Vector3.new(0, 48, 0)),
-		Color = Color3.fromRGB(48, 158, 68),
-		Material = Enum.Material.LeafyGrass,
-		Parent = hubModel,
-	})
-	makePart({
-		Name = "WorldTreeUpperCanopy",
-		Shape = Enum.PartType.Ball,
-		Size = Vector3.new(38, 22, 38),
-		CFrame = CFrame.new(southPos + Vector3.new(0, 62, 0)),
-		Color = Color3.fromRGB(68, 182, 82),
-		Material = Enum.Material.Grass,
-		Parent = hubModel,
-	})
-	-- 6 Surrounding Botanical Grove Trees & 4 Limestone Terrarium Planters
-	for t = 1, 6 do
-		local a = (t / 6) * math.pi * 2
-		local tPos = southPos + Vector3.new(math.cos(a) * 44, 0, math.sin(a) * 44)
-		buildNaturalTree(
-			hubModel,
-			tPos,
-			14 + (t % 2) * 4,
-			(t % 2 == 0) and Color3.fromRGB(52, 162, 74) or Color3.fromRGB(78, 175, 68)
-		)
-	end
-	for k = 1, 4 do
-		local a = (k / 4) * math.pi * 2 + math.rad(45)
-		local pPos = southPos + Vector3.new(math.cos(a) * 32, 0, math.sin(a) * 32)
-		makePart({
-			Name = "BioPlanter_" .. k,
-			Shape = Enum.PartType.Cylinder,
-			Size = Vector3.new(8, 16, 16),
-			CFrame = CFrame.new(pPos + Vector3.new(0, 4, 0)) * CFrame.Angles(0, 0, math.rad(90)),
-			Color = LIMESTONE_PALE,
-			Material = Enum.Material.Limestone,
-			Parent = hubModel,
-		})
-	end
-	makeMachineBillboard(
-		worldTreeTrunk,
-		"🌿 MACHINE 3: GAIA BIO-SYNTHESIZER",
-		"FLY NEAR & PRESS [E] OR CLICK [🌿 BIO-VAT] FOR 1.70x BIOMASS & CITIZENS!",
-		Color3.fromRGB(85, 235, 125),
-		52
-	)
-
-	-- 4. WEST MACHINE (`-420, 0, 0`): 🌀 STARFARER WARP GATE & ASCENSION MONOLITH (Carved Basalt & Sandstone)
+	-- WEST PLAZA (`-420, 0, 0`): 🌀 STARFARER WARP GATE & ASCENSION MONOLITH (Carved Basalt & Sandstone)
 	local westPos = Vector3.new(-hubRingRadius, 0, 0)
 	buildMachinePlaza("WarpGatePlaza", westPos, Enum.Material.Cobblestone, SLATE_MID)
 
@@ -913,8 +658,8 @@ function SpaceWorldBuilder.BuildCosmos(): Model
 	})
 	makeMachineBillboard(
 		warpPortal,
-		"🌀 MACHINE 5: STARFARER WARP & ASCENSION GATE",
-		"FLY NEAR & PRESS [E] OR CLICK [🌀 WARP] TO TELEPORT OR ASCEND!",
+		"🌀 STARFARER WARP & ASCENSION GATE",
+		"FLY NEAR & PRESS [E] OR CLICK [🌀 STATIONS] TO TELEPORT OR ASCEND!",
 		Color3.fromRGB(205, 135, 255),
 		52
 	)
@@ -1122,10 +867,6 @@ end
 -- ============================================================================
 local CHUNK_SIZE = 550
 local COLLECTIBLE_COLORS: { [string]: Color3 } = {
-	Minerals = Color3.fromRGB(235, 175, 55),
-	Biomass = Color3.fromRGB(75, 225, 115),
-	Energy = Color3.fromRGB(65, 215, 255),
-	Tech = Color3.fromRGB(185, 125, 255),
 	StarGems = Color3.fromRGB(95, 235, 255),
 	PopulationPod = Color3.fromRGB(255, 215, 95),
 	SupernovaChest = Color3.fromRGB(255, 145, 55),
@@ -1184,18 +925,10 @@ local function spawnProceduralChunk(cx: number, cy: number, cz: number)
 			local zoneDef = PlanetConfig.GetZoneForDistance(dist)
 
 			local roll = rng:NextInteger(1, 100)
-			local resType = "Minerals"
-			if roll <= 20 then
-				resType = "Minerals"
-			elseif roll <= 40 then
-				resType = "Biomass"
-			elseif roll <= 60 then
-				resType = "Energy"
-			elseif roll <= 75 then
-				resType = "Tech"
-			elseif roll <= 89 then
+			local resType = "StarGems"
+			if roll <= 68 then
 				resType = "StarGems"
-			elseif roll <= 95 then
+			elseif roll <= 88 then
 				resType = "PopulationPod"
 			else
 				resType = "SupernovaChest"
@@ -1217,7 +950,7 @@ local function spawnProceduralChunk(cx: number, cy: number, cz: number)
 				rootPart:SetAttribute("ResourceType", resType)
 				rootPart:SetAttribute("NodeTitle", nodeTitle)
 				rootPart:SetAttribute("ZoneTier", zoneDef.Tier)
-				rootPart:SetAttribute("ReqDrill", zoneDef.ReqDrill)
+				rootPart:SetAttribute("ReqDrill", 0)
 				rootPart:SetAttribute("BaseNodeValue", zoneDef.BaseNodeValue)
 				rootPart:SetAttribute("YieldMultiplier", zoneDef.YieldMultiplier)
 				rootPart:SetAttribute("GemMin", zoneDef.GemRange[1])

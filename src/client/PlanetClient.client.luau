@@ -98,9 +98,9 @@ end
 local HUB_SPAWN_POS = Vector3.new(0, 48, 215)
 
 local currentState: any = {
-	HasCompletedSetup = false,
-	Resources = { Minerals = 110, Biomass = 110, Energy = 95, Tech = 75 },
-	Gems = 50,
+	HasCompletedSetup = true,
+	Resources = { Minerals = 0, Biomass = 0, Energy = 0, Tech = 0 },
+	Gems = 75,
 	CosmicShards = 0,
 	Population = 10.0,
 	PlanetValueScore = 100,
@@ -113,8 +113,8 @@ local currentState: any = {
 	ClaimedPlaytimeGifts = {},
 	RedeemedCodes = {},
 	UnlockedStations = { Hub = true },
-	ActiveBoosters = { YieldBoost = 0, GemBoost = 0, SpeedBoost = 0, DrillBoost = 0 },
-	ShardUpgrades = { PermDrill = 0, PermGems = 0, ExtraDroneSlots = 0, PermSpeed = 0 },
+	ActiveBoosters = { YieldBoost = 0, GemBoost = 0, SpeedBoost = 0 },
+	ShardUpgrades = { PermValue = 0, PermGems = 0, ExtraDroneSlots = 0, PermSpeed = 0 },
 	Companions = {},
 	MaxEquippedDrones = 3,
 	Look = table.clone(PlanetConfig.DefaultPlanetLook),
@@ -129,19 +129,15 @@ local currentState: any = {
 		CivilizationMetropolis = 0,
 		AnomalyHarvester = 0,
 	},
-	MachineTiers = {
-		DysonReactor = 0,
-		TitanRefinery = 0,
-		GaiaBioVat = 0,
-		AstralObservatory = 0,
-	},
+	MachineTiers = {},
 	Rates = {
-		Minerals = 2.5,
-		Biomass = 2.5,
-		Energy = 2.2,
-		Tech = 1.8,
+		Gems = 2.5,
+		Minerals = 0,
+		Biomass = 0,
+		Energy = 0,
+		Tech = 0,
 		FlightSpeed = 135,
-		DrillPower = 0,
+		DrillPower = 999,
 		GlobalYieldMult = 1.0,
 		GemMultiplier = 1.0,
 		CompanionMult = 1.0,
@@ -178,10 +174,9 @@ local function getLocalPlanetScaleFactor(): number
 			sum += (lvl or 0)
 		end
 	end
-	local titanTier = (currentState.MachineTiers and currentState.MachineTiers.TitanRefinery) or 0
 	local rankDef = PlanetConfig.PlanetaryRanks[currentState.RankIndex or 1] or PlanetConfig.PlanetaryRanks[1]
 	local rankBonus = rankDef.SizeBonus or 0
-	return 1.0 + math.min(sum * 0.018 + titanTier * 0.03 + rankBonus, 1.85)
+	return 1.0 + math.min(sum * 0.018 + rankBonus, 1.85)
 end
 
 -- ============================================================================
@@ -484,8 +479,8 @@ local genesisContainer = Instance.new("Frame")
 genesisContainer.Name = "Main2DMenuScreen"
 genesisContainer.Size = UDim2.new(1, 0, 1, 0)
 genesisContainer.BackgroundColor3 = Color3.fromRGB(9, 12, 22)
-genesisContainer.BackgroundTransparency = 0 -- True 2D Menu Screen!
-genesisContainer.Visible = true
+genesisContainer.BackgroundTransparency = 0
+genesisContainer.Visible = false
 genesisContainer.Parent = screenGui
 
 -- Subtle 2D Starfield Backdrop Dots inside the 2D Menu
@@ -1711,7 +1706,7 @@ local inGameHUD = Instance.new("Frame")
 inGameHUD.Name = "SimulatorInGameHUD"
 inGameHUD.Size = UDim2.new(1, 0, 1, 0)
 inGameHUD.BackgroundTransparency = 1
-inGameHUD.Visible = false
+inGameHUD.Visible = true
 inGameHUD.Parent = screenGui
 
 -- A. TOP-CENTER PLANETARY RANK, XP PROGRESS BAR & SECTOR PILL
@@ -1878,9 +1873,9 @@ local function showToast(msg: string, color: Color3)
 end
 NotificationEvent.OnClientEvent:Connect(showToast)
 
--- D. BOTTOM-RIGHT 8 CURRENCY & STAT PILLS (Gems, Cosmic Shards/Drill, Minerals, Biomass, Energy, Tech, Citizens, Value!)
+-- D. BOTTOM-RIGHT 4 CURRENCY & STAT PILLS (Gems, Citizens, Planet Value, Cosmic Shards)
 local bottomRightHud = Instance.new("Frame")
-bottomRightHud.Size = UDim2.new(0, 396, 0, 192)
+bottomRightHud.Size = UDim2.new(0, 396, 0, 96)
 bottomRightHud.AnchorPoint = Vector2.new(1, 1)
 bottomRightHud.Position = UDim2.new(1, -14, 1, -12)
 bottomRightHud.BackgroundTransparency = 1
@@ -1896,13 +1891,9 @@ pillGrid.Parent = bottomRightHud
 local statCards: { [string]: { ValueLabel: TextLabel, RateLabel: TextLabel } } = {}
 local statDefs = {
 	{ Key = "Gems", Icon = "💎", Title = "Star Gems", TopC = Color3.fromRGB(255, 85, 225), BotC = Color3.fromRGB(175, 25, 165) },
-	{ Key = "ShardsDrill", Icon = "🔨", Title = "Drill & Shards", TopC = Color3.fromRGB(255, 215, 65), BotC = Color3.fromRGB(195, 125, 20) },
-	{ Key = "Minerals", Icon = "⛏", Title = "Minerals", TopC = Color3.fromRGB(245, 175, 55), BotC = Color3.fromRGB(195, 105, 20) },
-	{ Key = "Biomass", Icon = "🌿", Title = "Biomass", TopC = Color3.fromRGB(75, 225, 125), BotC = Color3.fromRGB(25, 155, 70) },
-	{ Key = "Energy", Icon = "⚡", Title = "Energy", TopC = Color3.fromRGB(55, 210, 245), BotC = Color3.fromRGB(20, 125, 205) },
-	{ Key = "Tech", Icon = "🔬", Title = "Tech", TopC = Color3.fromRGB(195, 115, 245), BotC = Color3.fromRGB(125, 45, 195) },
 	{ Key = "Population", Icon = "👥", Title = "Citizens", TopC = Color3.fromRGB(245, 220, 90), BotC = Color3.fromRGB(195, 150, 25) },
 	{ Key = "PlanetValue", Icon = "★", Title = "Planet Value", TopC = Color3.fromRGB(245, 105, 185), BotC = Color3.fromRGB(180, 35, 125) },
+	{ Key = "CosmicShards", Icon = "🪐", Title = "Cosmic Shards", TopC = Color3.fromRGB(255, 215, 65), BotC = Color3.fromRGB(195, 125, 20) },
 }
 
 for _, def in ipairs(statDefs) do
@@ -1972,7 +1963,7 @@ local boosterStatusLbl = Instance.new("TextLabel")
 boosterStatusLbl.Size = UDim2.new(1, -16, 1, 0)
 boosterStatusLbl.Position = UDim2.new(0, 8, 0, 0)
 boosterStatusLbl.BackgroundTransparency = 1
-boosterStatusLbl.Text = "🔨 Drill Lv.1 • 🛸 Drones: 0/3 • 📡 Next Station: Belt Outpost (1,850 studs)"
+boosterStatusLbl.Text = "🛸 Drones: 0/3 • 🛰️ Next Gate: Belt Outpost (1,850 studs)"
 boosterStatusLbl.TextColor3 = Color3.fromRGB(220, 238, 255)
 boosterStatusLbl.Font = Enum.Font.FredokaOne
 boosterStatusLbl.TextSize = 12
@@ -2132,6 +2123,7 @@ do
 	local machineOrder = { "DysonReactor", "TitanRefinery", "GaiaBioVat", "AstralObservatory" }
 	for _, mId in ipairs(machineOrder) do
 		local mDef = PlanetConfig.HubMachines[mId]
+		if mDef then
 		local card = Instance.new("Frame")
 		card.Size = UDim2.new(1, -16, 0, 178)
 		card.BackgroundColor3 = Color3.fromRGB(26, 36, 68)
@@ -2244,6 +2236,7 @@ do
 			BuyOneBtn = buyOneBtn,
 			BuyMaxBtn = buyMaxBtn,
 		}
+		end
 	end
 end
 
@@ -2979,24 +2972,8 @@ local function makeSimulatorActionBtn(icon: string, label: string, topC: Color3,
 	btn.MouseButton1Click:Connect(onClick)
 end
 
-makeSimulatorActionBtn("⚡", "REACTOR", Color3.fromRGB(45, 210, 250), Color3.fromRGB(18, 120, 205), function()
-	openMachineModal("DysonReactor")
-end)
-
-makeSimulatorActionBtn("⚒️", "REFINERY", Color3.fromRGB(250, 175, 50), Color3.fromRGB(200, 95, 18), function()
-	openMachineModal("TitanRefinery")
-end)
-
-makeSimulatorActionBtn("🌿", "BIO-VAT", Color3.fromRGB(70, 230, 125), Color3.fromRGB(22, 155, 68), function()
-	openMachineModal("GaiaBioVat")
-end)
-
-makeSimulatorActionBtn("🔭", "TECH LAB", Color3.fromRGB(115, 185, 250), Color3.fromRGB(45, 105, 195), function()
-	openMachineModal("AstralObservatory")
-end)
-
 makeSimulatorActionBtn("⬆️", "UPGRADE", Color3.fromRGB(250, 205, 55), Color3.fromRGB(205, 130, 18), function()
-	toggleTab("PlanetValue", "⬆️ PLANET SYSTEMS, DRILL POWER & SIZE UPGRADES")
+	toggleTab("PlanetValue", "⬆️ PLANET SYSTEMS & SIZE UPGRADES")
 end)
 
 makeSimulatorActionBtn("🛸", "DRONES", Color3.fromRGB(95, 235, 195), Color3.fromRGB(25, 145, 115), function()
@@ -3394,27 +3371,10 @@ refreshUI = function()
 		end
 	end
 
-	local res = currentState.Resources
 	local rates = currentState.Rates
-	local drillPower = rates.DrillPower or 0
 
 	statCards.Gems.ValueLabel.Text = PlanetConfig.FormatNumber(currentState.Gems or 0)
-	statCards.Gems.RateLabel.Text = "💎 Star Gems"
-
-	statCards.ShardsDrill.ValueLabel.Text = string.format("Lv.%d Drill", drillPower)
-	statCards.ShardsDrill.RateLabel.Text = string.format("🪐 %s Cosmic Shards", PlanetConfig.FormatNumber(currentState.CosmicShards or 0))
-
-	statCards.Minerals.ValueLabel.Text = PlanetConfig.FormatNumber(res.Minerals)
-	statCards.Minerals.RateLabel.Text = string.format("Minerals (+%s/s)", PlanetConfig.FormatNumber(rates.Minerals))
-
-	statCards.Biomass.ValueLabel.Text = PlanetConfig.FormatNumber(res.Biomass)
-	statCards.Biomass.RateLabel.Text = string.format("Biomass (+%s/s)", PlanetConfig.FormatNumber(rates.Biomass))
-
-	statCards.Energy.ValueLabel.Text = PlanetConfig.FormatNumber(res.Energy)
-	statCards.Energy.RateLabel.Text = string.format("Energy (+%s/s)", PlanetConfig.FormatNumber(rates.Energy))
-
-	statCards.Tech.ValueLabel.Text = PlanetConfig.FormatNumber(res.Tech)
-	statCards.Tech.RateLabel.Text = string.format("Tech (+%s/s)", PlanetConfig.FormatNumber(rates.Tech))
+	statCards.Gems.RateLabel.Text = string.format("💎 Star Gems (+%s/s)", PlanetConfig.FormatNumber(rates.Gems or 2.5))
 
 	statCards.Population.ValueLabel.Text = PlanetConfig.FormatNumber(currentState.Population) .. "M"
 	local sp = SpeciesConfig.Species[currentState.SpeciesId] or SpeciesConfig.Species.Terranauts
@@ -3423,6 +3383,9 @@ refreshUI = function()
 	statCards.PlanetValue.ValueLabel.Text = PlanetConfig.FormatNumber(currentState.PlanetValueScore)
 	local evo = SpeciesConfig.EvolutionNodes[currentState.ActiveEvolutionId] or SpeciesConfig.EvolutionNodes.Awakening
 	statCards.PlanetValue.RateLabel.Text = evo.Name
+
+	statCards.CosmicShards.ValueLabel.Text = PlanetConfig.FormatNumber(currentState.CosmicShards or 0)
+	statCards.CosmicShards.RateLabel.Text = "🪐 Cosmic Shards"
 
 	-- Update Booster & Next Space Station Tracker Bar
 	local ownedDrones = currentState.Companions or {}
@@ -3451,8 +3414,7 @@ refreshUI = function()
 	end
 	local boostSummary = (#activeBoostTags > 0) and (" • Boosts: " .. table.concat(activeBoostTags, " ")) or ""
 	boosterStatusLbl.Text = string.format(
-		"🔨 Drill Power: Lv.%d (Zone %d) • 🛸 Drones: %d/%d • %s%s",
-		drillPower,
+		"🌌 Zone %d • 🛸 Drones: %d/%d • %s%s",
 		rates.CurrentZoneTier or 1,
 		eqCount,
 		maxSlots,
@@ -3495,16 +3457,13 @@ refreshUI = function()
 
 	-- Update Zone & Sector Banner
 	if rates.ActiveDistrictName and #rates.ActiveDistrictName > 0 then
-		zoneTitleLbl.Text = string.format("★ %s • Press [E] to Open Machine UI!", rates.ActiveDistrictName)
+		zoneTitleLbl.Text = string.format("★ %s • Press [E] to Interact!", rates.ActiveDistrictName)
 		zoneTitleLbl.TextColor3 = Color3.fromRGB(255, 230, 95)
 	else
 		local zTier = rates.CurrentZoneTier or 1
 		local zDef = PlanetConfig.DeepSpaceZones[zTier] or PlanetConfig.DeepSpaceZones[1]
-		local drillWarn = (drillPower < zDef.ReqDrill)
-			and string.format(" ⚠️ NEED DRILL LV.%d!", zDef.ReqDrill)
-			or string.format(" (🔨 Drill Lv.%d OK)", zDef.ReqDrill)
-		zoneTitleLbl.Text = string.format("🌌 %s%s • WASD + Shift", rates.CurrentSectorName or zDef.Name, drillWarn)
-		zoneTitleLbl.TextColor3 = (drillPower < zDef.ReqDrill) and Color3.fromRGB(255, 110, 110) or zDef.ThemeColor
+		zoneTitleLbl.Text = string.format("🌌 %s • WASD + Shift", rates.CurrentSectorName or zDef.Name)
+		zoneTitleLbl.TextColor3 = zDef.ThemeColor
 	end
 
 	-- Update Guided Mission Card
@@ -3579,15 +3538,13 @@ refreshUI = function()
 				ui.ReqLabel.TextColor3 = Color3.fromRGB(105, 245, 165)
 			else
 				ui.Btn.Text = string.format("🔓 UNLOCK (%s 💎)", PlanetConfig.FormatNumber(st.GemCost))
-				local canUnlock = (drillPower >= st.ReqDrill) and ((currentState.Gems or 0) >= st.GemCost)
+				local canUnlock = (currentState.Gems or 0) >= st.GemCost
 				ui.Btn.BackgroundColor3 = canUnlock and Color3.fromRGB(55, 215, 120) or Color3.fromRGB(85, 75, 115)
 				ui.ReqLabel.Text = string.format(
-					"Requires 🔨 Drill Lv.%d (Yours: Lv.%d)  •  Cost: %s 💎 Gems",
-					st.ReqDrill,
-					drillPower,
+					"Unlock Cost: %s 💎 Star Gems",
 					PlanetConfig.FormatNumber(st.GemCost)
 				)
-				ui.ReqLabel.TextColor3 = (drillPower >= st.ReqDrill) and Color3.fromRGB(255, 230, 105) or Color3.fromRGB(255, 115, 115)
+				ui.ReqLabel.TextColor3 = canUnlock and Color3.fromRGB(255, 230, 105) or Color3.fromRGB(255, 115, 115)
 			end
 		end
 	end
@@ -3778,10 +3735,7 @@ refreshUI = function()
 			else
 				local mult = math.pow(upg.CostScale, lvl)
 				local cTable = {
-					Minerals = upg.BaseCost.Minerals and math.floor(upg.BaseCost.Minerals * mult) or nil,
-					Biomass = upg.BaseCost.Biomass and math.floor(upg.BaseCost.Biomass * mult) or nil,
-					Energy = upg.BaseCost.Energy and math.floor(upg.BaseCost.Energy * mult) or nil,
-					Tech = upg.BaseCost.Tech and math.floor(upg.BaseCost.Tech * mult) or nil,
+					Gems = upg.BaseCost.Gems and math.floor(upg.BaseCost.Gems * mult) or nil,
 				}
 				cardUI.CostLabel.Text = "Cost: " .. formatCost(cTable)
 				cardUI.BuyOneBtn.Text = "⬆️ UPGRADE (+1)"
@@ -4048,10 +4002,9 @@ RunService.RenderStepped:Connect(function(dt: number)
 			proximityPromptBtn.Text = string.format("🛰️ PRESS [E] AT %s: OPEN WARP NETWORK", string.upper(foundStation.Name))
 		else
 			proximityPromptBtn.Text = string.format(
-				"🔓 PRESS [E] TO UNLOCK %s WARP GATE (%s 💎 • DRILL LV.%d)",
+				"🔓 PRESS [E] TO UNLOCK %s WARP GATE (%s 💎)",
 				string.upper(foundStation.Name),
-				PlanetConfig.FormatNumber(foundStation.GemCost),
-				foundStation.ReqDrill
+				PlanetConfig.FormatNumber(foundStation.GemCost)
 			)
 		end
 	elseif foundMachine then
