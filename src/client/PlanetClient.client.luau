@@ -24,6 +24,13 @@ local UnlockEvolutionEvent = Remotes:WaitForChild("UnlockEvolution") :: RemoteEv
 local UpgradePlanetValueEvent = Remotes:WaitForChild("UpgradePlanetValue") :: RemoteEvent
 local UpgradeMachineEvent = Remotes:WaitForChild("UpgradeMachine") :: RemoteEvent
 local WarpToSectorEvent = Remotes:WaitForChild("WarpToSector") :: RemoteEvent
+local UnlockSpaceStationEvent = Remotes:WaitForChild("UnlockSpaceStation") :: RemoteEvent
+local HatchCompanionPodEvent = Remotes:WaitForChild("HatchCompanionPod") :: RemoteEvent
+local CompanionActionEvent = Remotes:WaitForChild("CompanionAction") :: RemoteEvent
+local BuyBoosterEvent = Remotes:WaitForChild("BuyBooster") :: RemoteEvent
+local ClaimPlaytimeGiftEvent = Remotes:WaitForChild("ClaimPlaytimeGift") :: RemoteEvent
+local RedeemPromoCodeEvent = Remotes:WaitForChild("RedeemPromoCode") :: RemoteEvent
+local BuyShardUpgradeEvent = Remotes:WaitForChild("BuyShardUpgrade") :: RemoteEvent
 local AscendPlanetEvent = Remotes:WaitForChild("AscendPlanet") :: RemoteEvent
 local TeleportToHubEvent = Remotes:WaitForChild("TeleportToHub") :: RemoteEvent
 local FlightSyncEvent = Remotes:WaitForChild("FlightSync") :: RemoteEvent
@@ -92,13 +99,24 @@ local HUB_SPAWN_POS = Vector3.new(0, 48, 215)
 
 local currentState: any = {
 	HasCompletedSetup = false,
-	Resources = { Minerals = 180, Biomass = 180, Energy = 160, Tech = 120 },
+	Resources = { Minerals = 110, Biomass = 110, Energy = 95, Tech = 75 },
+	Gems = 50,
+	CosmicShards = 0,
 	Population = 10.0,
 	PlanetValueScore = 100,
 	RankIndex = 1,
 	Ascensions = 0,
 	MissionIndex = 1,
 	OrbsHarvested = 0,
+	DronesHatched = 0,
+	PlaytimeSeconds = 0,
+	ClaimedPlaytimeGifts = {},
+	RedeemedCodes = {},
+	UnlockedStations = { Hub = true },
+	ActiveBoosters = { YieldBoost = 0, GemBoost = 0, SpeedBoost = 0, DrillBoost = 0 },
+	ShardUpgrades = { PermDrill = 0, PermGems = 0, ExtraDroneSlots = 0, PermSpeed = 0 },
+	Companions = {},
+	MaxEquippedDrones = 3,
 	Look = table.clone(PlanetConfig.DefaultPlanetLook),
 	SpeciesId = "Terranauts",
 	UnlockedEvolutions = { Awakening = true },
@@ -118,14 +136,20 @@ local currentState: any = {
 		AstralObservatory = 0,
 	},
 	Rates = {
-		Minerals = 6,
-		Biomass = 6,
-		Energy = 5.5,
-		Tech = 4.5,
+		Minerals = 2.5,
+		Biomass = 2.5,
+		Energy = 2.2,
+		Tech = 1.8,
 		FlightSpeed = 135,
+		DrillPower = 0,
+		GlobalYieldMult = 1.0,
+		GemMultiplier = 1.0,
+		CompanionMult = 1.0,
 		InHubSanctuary = true,
 		ActiveDistrictName = "",
-		CurrentSectorName = "Galactic Nexus Hub  •  1x Loot",
+		CurrentSectorName = "Zone 1: Inner Sanctuary Orbit  •  1x Node Loot",
+		CurrentZoneTier = 1,
+		CurrentZoneReqDrill = 0,
 	},
 	PlanetPosition = HUB_SPAWN_POS,
 }
@@ -432,6 +456,9 @@ end
 
 local function formatCost(cost: { [string]: number? }): string
 	local parts = {}
+	if cost.Gems and cost.Gems > 0 then
+		table.insert(parts, string.format("%s💎", PlanetConfig.FormatNumber(cost.Gems)))
+	end
 	if cost.Minerals and cost.Minerals > 0 then
 		table.insert(parts, string.format("%s⛏", PlanetConfig.FormatNumber(cost.Minerals)))
 	end
@@ -1843,9 +1870,9 @@ local function showToast(msg: string, color: Color3)
 end
 NotificationEvent.OnClientEvent:Connect(showToast)
 
--- D. BOTTOM-RIGHT 6 CURRENCY & STAT PILLS (Formatted with K, M, B, T, Qa!)
+-- D. BOTTOM-RIGHT 8 CURRENCY & STAT PILLS (Gems, Cosmic Shards/Drill, Minerals, Biomass, Energy, Tech, Citizens, Value!)
 local bottomRightHud = Instance.new("Frame")
-bottomRightHud.Size = UDim2.new(0, 396, 0, 142)
+bottomRightHud.Size = UDim2.new(0, 396, 0, 192)
 bottomRightHud.AnchorPoint = Vector2.new(1, 1)
 bottomRightHud.Position = UDim2.new(1, -14, 1, -12)
 bottomRightHud.BackgroundTransparency = 1
@@ -1860,6 +1887,8 @@ pillGrid.Parent = bottomRightHud
 
 local statCards: { [string]: { ValueLabel: TextLabel, RateLabel: TextLabel } } = {}
 local statDefs = {
+	{ Key = "Gems", Icon = "💎", Title = "Star Gems", TopC = Color3.fromRGB(255, 85, 225), BotC = Color3.fromRGB(175, 25, 165) },
+	{ Key = "ShardsDrill", Icon = "🔨", Title = "Drill & Shards", TopC = Color3.fromRGB(255, 215, 65), BotC = Color3.fromRGB(195, 125, 20) },
 	{ Key = "Minerals", Icon = "⛏", Title = "Minerals", TopC = Color3.fromRGB(245, 175, 55), BotC = Color3.fromRGB(195, 105, 20) },
 	{ Key = "Biomass", Icon = "🌿", Title = "Biomass", TopC = Color3.fromRGB(75, 225, 125), BotC = Color3.fromRGB(25, 155, 70) },
 	{ Key = "Energy", Icon = "⚡", Title = "Energy", TopC = Color3.fromRGB(55, 210, 245), BotC = Color3.fromRGB(20, 125, 205) },
@@ -1920,12 +1949,34 @@ for _, def in ipairs(statDefs) do
 	statCards[def.Key] = { ValueLabel = valLbl, RateLabel = rateLbl }
 end
 
+-- E. ACTIVE BOOSTERS & DISTANCE TRACKER BAR (Right below topProgressionCard)
+local boosterTrackerBar = Instance.new("Frame")
+boosterTrackerBar.Size = UDim2.new(0, 560, 0, 28)
+boosterTrackerBar.AnchorPoint = Vector2.new(0.5, 0)
+boosterTrackerBar.Position = UDim2.new(0.5, 0, 0, 92)
+boosterTrackerBar.BackgroundColor3 = Color3.fromRGB(16, 22, 42)
+boosterTrackerBar.BackgroundTransparency = 0.15
+boosterTrackerBar.Parent = inGameHUD
+addCorner(boosterTrackerBar, 12)
+addBorderStroke(boosterTrackerBar, Color3.fromRGB(95, 165, 240), 1.6)
+
+local boosterStatusLbl = Instance.new("TextLabel")
+boosterStatusLbl.Size = UDim2.new(1, -16, 1, 0)
+boosterStatusLbl.Position = UDim2.new(0, 8, 0, 0)
+boosterStatusLbl.BackgroundTransparency = 1
+boosterStatusLbl.Text = "🔨 Drill Lv.1 • 🛸 Drones: 0/3 • 📡 Next Station: Belt Outpost (1,850 studs)"
+boosterStatusLbl.TextColor3 = Color3.fromRGB(220, 238, 255)
+boosterStatusLbl.Font = Enum.Font.FredokaOne
+boosterStatusLbl.TextSize = 12
+boosterStatusLbl.Parent = boosterTrackerBar
+addTextStroke(boosterStatusLbl, 1.4)
+
 -- ============================================================================
--- 7. DEDICATED HUB MACHINE UIs, EVOLUTION, UPGRADES, WARP & SETTINGS MODAL
+-- 7. DEDICATED HUB MACHINE UIs, DRONES, BOOSTS, EVOLUTION, UPGRADES & WARP
 -- ============================================================================
 local modalFrame = Instance.new("Frame")
 modalFrame.Name = "SimulatorModalWindow"
-modalFrame.Size = UDim2.new(0, 860, 0, 510)
+modalFrame.Size = UDim2.new(0, 880, 0, 520)
 modalFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 modalFrame.Position = UDim2.new(0.5, 0, 0.5, -10)
 modalFrame.BackgroundColor3 = Color3.fromRGB(18, 24, 46)
@@ -1988,6 +2039,8 @@ local machinesPage = createTabPage("Machines")
 local evolutionPage = createTabPage("Evolution")
 local planetValuePage = createTabPage("PlanetValue")
 local warpAscendPage = createTabPage("WarpAscend")
+local dronesPage = createTabPage("Drones")
+local boostsRewardsPage = createTabPage("BoostsRewards")
 
 local selectedMachineFilter: string? = nil
 local machineCardsUI: {
@@ -2009,7 +2062,7 @@ local function openMachineModal(machineId: string?)
 		local mDef = PlanetConfig.HubMachines[machineId]
 		modalTitleLabel.Text = mDef.Name .. "  (Dedicated Machine UI)"
 	else
-		modalTitleLabel.Text = "⚙️ ALL GALACTIC HUB MACHINES (EXPONENTIAL OVERCLOCK)"
+		modalTitleLabel.Text = "⚙️ ALL GALACTIC HUB MACHINES (TIERED OVERCLOCK)"
 	end
 	for k, page in pairs(tabPages) do
 		page.Visible = (k == "Machines")
@@ -2094,7 +2147,7 @@ do
 		tierLbl.Size = UDim2.new(0, 145, 0, 26)
 		tierLbl.Position = UDim2.new(1, -160, 0, 11)
 		tierLbl.BackgroundTransparency = 1
-		tierLbl.Text = "Tier 0 / 30"
+		tierLbl.Text = "Tier 0 / 50"
 		tierLbl.TextColor3 = Color3.fromRGB(255, 235, 105)
 		tierLbl.Font = Enum.Font.FredokaOne
 		tierLbl.TextSize = 16
@@ -2118,7 +2171,7 @@ do
 		effectLbl.Size = UDim2.new(1, -32, 0, 22)
 		effectLbl.Position = UDim2.new(0, 16, 0, 78)
 		effectLbl.BackgroundTransparency = 1
-		effectLbl.Text = "Current Multiplier: 1.00x  ➔  Next Tier: 1.70x"
+		effectLbl.Text = "Current Multiplier: 1.00x  ➔  Next Tier: 1.45x"
 		effectLbl.TextColor3 = Color3.fromRGB(105, 245, 165)
 		effectLbl.Font = Enum.Font.FredokaOne
 		effectLbl.TextSize = 14
@@ -2186,18 +2239,120 @@ do
 	end
 end
 
--- BUILD STARFARER WARP GATE & PLANETARY ASCENSION PAGE (`warpAscendPage`)
+-- BUILD DEEP-SPACE STATIONS WARP GATE, PLANETARY ASCENSION & COSMIC SHARDS SHOP (`warpAscendPage`)
 local ascensionInfoLabel: TextLabel
 local ascendActionBtn: TextButton
-local warpSectorBtns: { [string]: { Btn: TextButton, ReqLabel: TextLabel } } = {}
+local warpStationBtns: { [string]: { Btn: TextButton, ReqLabel: TextLabel, StatusBadge: TextLabel } } = {}
+local shardUpgBtns: { [string]: { Btn: TextButton, LvlLabel: TextLabel } } = {}
 do
 	local wList = Instance.new("UIListLayout")
 	wList.Padding = UDim.new(0, 12)
 	wList.Parent = warpAscendPage
 
-	-- Top Card: Planetary Ascension (Permanent 3^Ascensions Multiplier)
+	-- 1. Deep-Space Stations & Warp Gate Network Header
+	local stHdr = Instance.new("TextLabel")
+	stHdr.Size = UDim2.new(1, -16, 0, 26)
+	stHdr.BackgroundTransparency = 1
+	stHdr.Text = "🛰️ DEEP-SPACE OUTPOST STATIONS (UNLOCK WARP GATES WITH 💎 STAR GEMS)"
+	stHdr.TextColor3 = Color3.fromRGB(115, 225, 255)
+	stHdr.Font = Enum.Font.FredokaOne
+	stHdr.TextSize = 16
+	stHdr.TextXAlignment = Enum.TextXAlignment.Left
+	stHdr.Parent = warpAscendPage
+	addTextStroke(stHdr, 1.6)
+
+	for _, st in ipairs(PlanetConfig.SpaceStations) do
+		local sCard = Instance.new("Frame")
+		sCard.Size = UDim2.new(1, -16, 0, 96)
+		sCard.BackgroundColor3 = Color3.fromRGB(24, 34, 64)
+		sCard.Parent = warpAscendPage
+		addCorner(sCard, 14)
+		addBorderStroke(sCard, st.Color, 2.0)
+
+		local distStuds = math.floor(st.Position.Magnitude)
+		local sTitle = Instance.new("TextLabel")
+		sTitle.Size = UDim2.new(1, -225, 0, 24)
+		sTitle.Position = UDim2.new(0, 14, 0, 6)
+		sTitle.BackgroundTransparency = 1
+		sTitle.Text = string.format("%s  •  %s studs (%sx Zone Yield)", st.Name, PlanetConfig.FormatNumber(distStuds), PlanetConfig.FormatNumber(st.RewardMultiplier))
+		sTitle.TextColor3 = st.Color
+		sTitle.Font = Enum.Font.FredokaOne
+		sTitle.TextSize = 15
+		sTitle.TextXAlignment = Enum.TextXAlignment.Left
+		sTitle.Parent = sCard
+		addTextStroke(sTitle, 1.6)
+
+		local sDesc = Instance.new("TextLabel")
+		sDesc.Size = UDim2.new(1, -225, 0, 22)
+		sDesc.Position = UDim2.new(0, 14, 0, 30)
+		sDesc.BackgroundTransparency = 1
+		sDesc.Text = st.Description
+		sDesc.TextColor3 = Color3.fromRGB(215, 226, 245)
+		sDesc.Font = Enum.Font.GothamMedium
+		sDesc.TextSize = 11
+		sDesc.TextWrapped = true
+		sDesc.TextXAlignment = Enum.TextXAlignment.Left
+		sDesc.Parent = sCard
+
+		local perkLbl = Instance.new("TextLabel")
+		perkLbl.Size = UDim2.new(1, -225, 0, 18)
+		perkLbl.Position = UDim2.new(0, 14, 0, 52)
+		perkLbl.BackgroundTransparency = 1
+		perkLbl.Text = "✨ Gate Perk: " .. (st.StationUnlockPerk or "Permanent Network Bonus")
+		perkLbl.TextColor3 = Color3.fromRGB(110, 245, 175)
+		perkLbl.Font = Enum.Font.FredokaOne
+		perkLbl.TextSize = 11
+		perkLbl.TextXAlignment = Enum.TextXAlignment.Left
+		perkLbl.Parent = sCard
+		addTextStroke(perkLbl, 1.2)
+
+		local reqLbl = Instance.new("TextLabel")
+		reqLbl.Size = UDim2.new(1, -225, 0, 18)
+		reqLbl.Position = UDim2.new(0, 14, 0, 71)
+		reqLbl.BackgroundTransparency = 1
+		reqLbl.Text = (st.GemCost > 0)
+			and string.format("Requires 🔨 Drill Lv.%d  •  Unlock Cost: %s 💎 Gems", st.ReqDrill, PlanetConfig.FormatNumber(st.GemCost))
+			or "Unlocked from Start!"
+		reqLbl.TextColor3 = Color3.fromRGB(255, 230, 105)
+		reqLbl.Font = Enum.Font.FredokaOne
+		reqLbl.TextSize = 11
+		reqLbl.TextXAlignment = Enum.TextXAlignment.Left
+		reqLbl.Parent = sCard
+		addTextStroke(reqLbl, 1.3)
+
+		local wBtn = Instance.new("TextButton")
+		wBtn.Size = UDim2.new(0, 195, 0, 52)
+		wBtn.Position = UDim2.new(1, -208, 0.5, -26)
+		wBtn.BackgroundColor3 = st.Color
+		wBtn.Text = "🌀 WARP HERE"
+		wBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		wBtn.Font = Enum.Font.FredokaOne
+		wBtn.TextSize = 14
+		wBtn.Parent = sCard
+		addCorner(wBtn, 12)
+		addBorderStroke(wBtn, Color3.fromRGB(255, 255, 255), 1.8)
+		addTextStroke(wBtn, 1.8)
+
+		wBtn.MouseButton1Click:Connect(function()
+			local isUnlocked = (st.GemCost == 0) or (currentState.UnlockedStations and currentState.UnlockedStations[st.Id] == true)
+			if isUnlocked then
+				playSFX(sfxLaunch, 0.35)
+				localPlanetPos = st.Position + Vector3.new(0, 18, 85)
+				localVelocity = Vector3.zero
+				WarpToSectorEvent:FireServer(st.Id)
+				modalFrame.Visible = false
+			else
+				playSFX(sfxUpgrade, 0.38)
+				UnlockSpaceStationEvent:FireServer(st.Id)
+			end
+		end)
+
+		warpStationBtns[st.Id] = { Btn = wBtn, ReqLabel = reqLbl, StatusBadge = perkLbl }
+	end
+
+	-- 2. Planetary Ascension Card (Awards Cosmic Shards + 2.5x Permanent Multiplier)
 	local ascCard = Instance.new("Frame")
-	ascCard.Size = UDim2.new(1, -16, 0, 136)
+	ascCard.Size = UDim2.new(1, -16, 0, 140)
 	ascCard.BackgroundColor3 = Color3.fromRGB(36, 26, 68)
 	ascCard.Parent = warpAscendPage
 	addCorner(ascCard, 16)
@@ -2207,7 +2362,7 @@ do
 	ascHdr.Size = UDim2.new(1, -24, 0, 26)
 	ascHdr.Position = UDim2.new(0, 14, 0, 8)
 	ascHdr.BackgroundTransparency = 1
-	ascHdr.Text = "🌟 PLANETARY ASCENSION NEXUS (PERMANENT 3x MULTIPLIER PER ASCENSION!)"
+	ascHdr.Text = "🌟 PLANETARY ASCENSION & 🪐 COSMIC SHARD REBIRTH"
 	ascHdr.TextColor3 = Color3.fromRGB(255, 225, 85)
 	ascHdr.Font = Enum.Font.FredokaOne
 	ascHdr.TextSize = 16
@@ -2216,13 +2371,13 @@ do
 	addTextStroke(ascHdr, 1.8)
 
 	ascensionInfoLabel = Instance.new("TextLabel")
-	ascensionInfoLabel.Size = UDim2.new(1, -28, 0, 42)
+	ascensionInfoLabel.Size = UDim2.new(1, -28, 0, 44)
 	ascensionInfoLabel.Position = UDim2.new(0, 14, 0, 36)
 	ascensionInfoLabel.BackgroundTransparency = 1
-	ascensionInfoLabel.Text = "Current Ascensions: 0 (1x Permanent Bonus)  •  Requires 15K Planet Value Score"
+	ascensionInfoLabel.Text = "Current Ascensions: 0 (1x Permanent Bonus)  •  Requires 250K Planet Value"
 	ascensionInfoLabel.TextColor3 = Color3.fromRGB(225, 235, 255)
 	ascensionInfoLabel.Font = Enum.Font.GothamBold
-	ascensionInfoLabel.TextSize = 13
+	ascensionInfoLabel.TextSize = 12
 	ascensionInfoLabel.TextWrapped = true
 	ascensionInfoLabel.TextXAlignment = Enum.TextXAlignment.Left
 	ascensionInfoLabel.Parent = ascCard
@@ -2231,10 +2386,10 @@ do
 	ascendActionBtn.Size = UDim2.new(1, -28, 0, 42)
 	ascendActionBtn.Position = UDim2.new(0, 14, 1, -50)
 	ascendActionBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-	ascendActionBtn.Text = "🌟 ASCEND PLANET FOR PERMANENT 3x ALL YIELDS!"
+	ascendActionBtn.Text = "🌟 ASCEND PLANET (+2.5x ALL YIELDS & 🪐 COSMIC SHARDS)"
 	ascendActionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	ascendActionBtn.Font = Enum.Font.FredokaOne
-	ascendActionBtn.TextSize = 15
+	ascendActionBtn.TextSize = 14
 	ascendActionBtn.Parent = ascCard
 	addCorner(ascendActionBtn, 10)
 	addBorderStroke(ascendActionBtn, Color3.fromRGB(255, 255, 255), 2)
@@ -2246,89 +2401,491 @@ do
 		AscendPlanetEvent:FireServer()
 	end)
 
-	-- Deep-Space Warp Sectors List
-	for _, sec in ipairs(PlanetConfig.WarpSectors) do
-		local sCard = Instance.new("Frame")
-		sCard.Size = UDim2.new(1, -16, 0, 88)
-		sCard.BackgroundColor3 = Color3.fromRGB(24, 34, 64)
-		sCard.Parent = warpAscendPage
-		addCorner(sCard, 14)
-		addBorderStroke(sCard, sec.Color, 2.0)
+	-- 3. Cosmic Shard Permanent Upgrades Grid
+	local shardGridFrame = Instance.new("Frame")
+	shardGridFrame.Size = UDim2.new(1, -16, 0, 195)
+	shardGridFrame.BackgroundTransparency = 1
+	shardGridFrame.Parent = warpAscendPage
 
-		local sTitle = Instance.new("TextLabel")
-		sTitle.Size = UDim2.new(1, -210, 0, 24)
-		sTitle.Position = UDim2.new(0, 14, 0, 8)
-		sTitle.BackgroundTransparency = 1
-		sTitle.Text = string.format("%s  (%sx Collectible Rewards)", sec.Name, PlanetConfig.FormatNumber(sec.RewardMultiplier))
-		sTitle.TextColor3 = sec.Color
-		sTitle.Font = Enum.Font.FredokaOne
-		sTitle.TextSize = 16
-		sTitle.TextXAlignment = Enum.TextXAlignment.Left
-		sTitle.Parent = sCard
-		addTextStroke(sTitle, 1.6)
+	local sGrid = Instance.new("UIGridLayout")
+	sGrid.CellSize = UDim2.new(0, 405, 0, 88)
+	sGrid.CellPadding = UDim2.new(0, 12, 0, 12)
+	sGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	sGrid.Parent = shardGridFrame
 
-		local sDesc = Instance.new("TextLabel")
-		sDesc.Size = UDim2.new(1, -210, 0, 26)
-		sDesc.Position = UDim2.new(0, 14, 0, 34)
-		sDesc.BackgroundTransparency = 1
-		sDesc.Text = sec.Description
-		sDesc.TextColor3 = Color3.fromRGB(215, 226, 245)
-		sDesc.Font = Enum.Font.GothamMedium
-		sDesc.TextSize = 11
-		sDesc.TextWrapped = true
-		sDesc.TextXAlignment = Enum.TextXAlignment.Left
-		sDesc.Parent = sCard
+	for _, sUpg in ipairs(PlanetConfig.ShardUpgrades) do
+		local sc = Instance.new("Frame")
+		sc.BackgroundColor3 = Color3.fromRGB(32, 24, 58)
+		sc.Parent = shardGridFrame
+		addCorner(sc, 12)
+		addBorderStroke(sc, Color3.fromRGB(195, 115, 255), 2.0)
 
-		local reqLbl = Instance.new("TextLabel")
-		reqLbl.Size = UDim2.new(1, -210, 0, 18)
-		reqLbl.Position = UDim2.new(0, 14, 0, 62)
-		reqLbl.BackgroundTransparency = 1
-		reqLbl.Text = (sec.MinValueReq > 0) and ("Requires Planet Value: " .. PlanetConfig.FormatNumber(sec.MinValueReq)) or "Unlocked from Start!"
-		reqLbl.TextColor3 = Color3.fromRGB(255, 230, 105)
-		reqLbl.Font = Enum.Font.FredokaOne
-		reqLbl.TextSize = 11
-		reqLbl.TextXAlignment = Enum.TextXAlignment.Left
-		reqLbl.Parent = sCard
-		addTextStroke(reqLbl, 1.3)
+		local st = Instance.new("TextLabel")
+		st.Size = UDim2.new(1, -145, 0, 22)
+		st.Position = UDim2.new(0, 12, 0, 6)
+		st.BackgroundTransparency = 1
+		st.Text = sUpg.Name
+		st.TextColor3 = Color3.fromRGB(225, 165, 255)
+		st.Font = Enum.Font.FredokaOne
+		st.TextSize = 14
+		st.TextXAlignment = Enum.TextXAlignment.Left
+		st.Parent = sc
+		addTextStroke(st, 1.4)
 
-		local wBtn = Instance.new("TextButton")
-		wBtn.Size = UDim2.new(0, 175, 0, 48)
-		wBtn.Position = UDim2.new(1, -190, 0.5, -24)
-		wBtn.BackgroundColor3 = sec.Color
-		wBtn.Text = "🌀 WARP HERE"
-		wBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-		wBtn.Font = Enum.Font.FredokaOne
-		wBtn.TextSize = 15
-		wBtn.Parent = sCard
-		addCorner(wBtn, 12)
-		addBorderStroke(wBtn, Color3.fromRGB(255, 255, 255), 1.8)
-		addTextStroke(wBtn, 1.8)
+		local sl = Instance.new("TextLabel")
+		sl.Size = UDim2.new(0, 120, 0, 20)
+		sl.Position = UDim2.new(1, -132, 0, 7)
+		sl.BackgroundTransparency = 1
+		sl.Text = "Lv. 0 / " .. tostring(sUpg.MaxLevel)
+		sl.TextColor3 = Color3.fromRGB(255, 225, 95)
+		sl.Font = Enum.Font.FredokaOne
+		sl.TextSize = 12
+		sl.TextXAlignment = Enum.TextXAlignment.Right
+		sl.Parent = sc
+		addTextStroke(sl, 1.3)
 
-		wBtn.MouseButton1Click:Connect(function()
-			playSFX(sfxLaunch, 0.35)
-			localPlanetPos = sec.Position
-			localVelocity = Vector3.zero
-			WarpToSectorEvent:FireServer(sec.Id)
-			modalFrame.Visible = false
+		local sd = Instance.new("TextLabel")
+		sd.Size = UDim2.new(1, -150, 0, 34)
+		sd.Position = UDim2.new(0, 12, 0, 30)
+		sd.BackgroundTransparency = 1
+		sd.Text = sUpg.Description
+		sd.TextColor3 = Color3.fromRGB(215, 225, 245)
+		sd.Font = Enum.Font.GothamBold
+		sd.TextSize = 11
+		sd.TextWrapped = true
+		sd.TextXAlignment = Enum.TextXAlignment.Left
+		sd.Parent = sc
+
+		local sb = Instance.new("TextButton")
+		sb.Size = UDim2.new(0, 128, 0, 42)
+		sb.Position = UDim2.new(1, -138, 0.5, -14)
+		sb.BackgroundColor3 = Color3.fromRGB(165, 65, 235)
+		sb.Text = "🪐 1 SHARD"
+		sb.TextColor3 = Color3.fromRGB(255, 255, 255)
+		sb.Font = Enum.Font.FredokaOne
+		sb.TextSize = 12
+		sb.Parent = sc
+		addCorner(sb, 10)
+		addBorderStroke(sb, Color3.fromRGB(255, 255, 255), 1.6)
+		addTextStroke(sb, 1.5)
+
+		sb.MouseButton1Click:Connect(function()
+			playSFX(sfxUpgrade, 0.4)
+			BuyShardUpgradeEvent:FireServer(sUpg.Id)
 		end)
 
-		warpSectorBtns[sec.Id] = { Btn = wBtn, ReqLabel = reqLbl }
+		shardUpgBtns[sUpg.Id] = { Btn = sb, LvlLabel = sl }
 	end
 end
 
 -- ============================================================================
--- 8. BOTTOM-LEFT / CENTER 7-BUTTON DOCK & PROXIMITY MACHINE INTERACTION PROMPT
+-- 7B. ORBITAL COMPANIONS / DRONE PODS GACHA & INVENTORY PAGE (`dronesPage`)
+-- ============================================================================
+local droneSummaryLabel: TextLabel
+local droneInventoryGridFrame: Frame
+do
+	local dList = Instance.new("UIListLayout")
+	dList.Padding = UDim.new(0, 12)
+	dList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	dList.Parent = dronesPage
+
+	-- Pod Hatching Row (3 Tiers of Drone Pods)
+	local podRow = Instance.new("Frame")
+	podRow.Size = UDim2.new(1, -16, 0, 168)
+	podRow.BackgroundTransparency = 1
+	podRow.Parent = dronesPage
+
+	local podGrid = Instance.new("UIGridLayout")
+	podGrid.CellSize = UDim2.new(0, 268, 0, 164)
+	podGrid.CellPadding = UDim2.new(0, 12, 0, 0)
+	podGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	podGrid.Parent = podRow
+
+	for _, pod in ipairs(PlanetConfig.CompanionPods) do
+		local pCard = Instance.new("Frame")
+		pCard.BackgroundColor3 = Color3.fromRGB(26, 36, 68)
+		pCard.Parent = podRow
+		addCorner(pCard, 16)
+		addBorderStroke(pCard, pod.Color, 2.4)
+
+		local pTitle = Instance.new("TextLabel")
+		pTitle.Size = UDim2.new(1, -16, 0, 26)
+		pTitle.Position = UDim2.new(0, 8, 0, 8)
+		pTitle.BackgroundTransparency = 1
+		pTitle.Text = pod.Icon .. " " .. pod.Name
+		pTitle.TextColor3 = pod.Color
+		pTitle.Font = Enum.Font.FredokaOne
+		pTitle.TextSize = 15
+		pTitle.Parent = pCard
+		addTextStroke(pTitle, 1.6)
+
+		local pDesc = Instance.new("TextLabel")
+		pDesc.Size = UDim2.new(1, -20, 0, 40)
+		pDesc.Position = UDim2.new(0, 10, 0, 36)
+		pDesc.BackgroundTransparency = 1
+		pDesc.Text = pod.Description
+		pDesc.TextColor3 = Color3.fromRGB(215, 226, 245)
+		pDesc.Font = Enum.Font.GothamBold
+		pDesc.TextSize = 11
+		pDesc.TextWrapped = true
+		pDesc.Parent = pCard
+
+		local pCost = Instance.new("TextLabel")
+		pCost.Size = UDim2.new(1, -16, 0, 22)
+		pCost.Position = UDim2.new(0, 8, 0, 80)
+		pCost.BackgroundTransparency = 1
+		pCost.Text = string.format("Cost: %s 💎 Star Gems", PlanetConfig.FormatNumber(pod.GemCost))
+		pCost.TextColor3 = Color3.fromRGB(255, 130, 240)
+		pCost.Font = Enum.Font.FredokaOne
+		pCost.TextSize = 14
+		pCost.Parent = pCard
+		addTextStroke(pCost, 1.4)
+
+		local hatch1Btn = Instance.new("TextButton")
+		hatch1Btn.Size = UDim2.new(0.48, -10, 0, 42)
+		hatch1Btn.Position = UDim2.new(0, 10, 1, -50)
+		hatch1Btn.BackgroundColor3 = pod.Color
+		hatch1Btn.Text = "HATCH 1x"
+		hatch1Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		hatch1Btn.Font = Enum.Font.FredokaOne
+		hatch1Btn.TextSize = 13
+		hatch1Btn.Parent = pCard
+		addCorner(hatch1Btn, 10)
+		addBorderStroke(hatch1Btn, Color3.fromRGB(255, 255, 255), 1.6)
+		addTextStroke(hatch1Btn, 1.6)
+
+		local hatch3Btn = Instance.new("TextButton")
+		hatch3Btn.Size = UDim2.new(0.52, -14, 0, 42)
+		hatch3Btn.Position = UDim2.new(0.48, 4, 1, -50)
+		hatch3Btn.BackgroundColor3 = Color3.fromRGB(245, 185, 45)
+		hatch3Btn.Text = "⚡ HATCH 3x"
+		hatch3Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		hatch3Btn.Font = Enum.Font.FredokaOne
+		hatch3Btn.TextSize = 13
+		hatch3Btn.Parent = pCard
+		addCorner(hatch3Btn, 10)
+		addBorderStroke(hatch3Btn, Color3.fromRGB(255, 255, 255), 1.6)
+		addTextStroke(hatch3Btn, 1.6)
+
+		hatch1Btn.MouseButton1Click:Connect(function()
+			playSFX(sfxEvolve, 0.42)
+			HatchCompanionPodEvent:FireServer(pod.Id, false)
+		end)
+		hatch3Btn.MouseButton1Click:Connect(function()
+			playSFX(sfxEvolve, 0.48)
+			HatchCompanionPodEvent:FireServer(pod.Id, true)
+		end)
+	end
+
+	-- Action Bar: Equip Best & Craft All Golden (3 Identical -> 1 Golden 1.85x Stats!)
+	local actRow = Instance.new("Frame")
+	actRow.Size = UDim2.new(1, -16, 0, 44)
+	actRow.BackgroundColor3 = Color3.fromRGB(24, 34, 62)
+	actRow.Parent = dronesPage
+	addCorner(actRow, 12)
+	addBorderStroke(actRow, Color3.fromRGB(95, 165, 240), 1.8)
+
+	droneSummaryLabel = Instance.new("TextLabel")
+	droneSummaryLabel.Size = UDim2.new(1, -360, 1, 0)
+	droneSummaryLabel.Position = UDim2.new(0, 14, 0, 0)
+	droneSummaryLabel.BackgroundTransparency = 1
+	droneSummaryLabel.Text = "🛸 Equipped Drones: 0 / 3  •  Total Bonus: 1.00x Yield, +0 🔨 Drill"
+	droneSummaryLabel.TextColor3 = Color3.fromRGB(115, 240, 185)
+	droneSummaryLabel.Font = Enum.Font.FredokaOne
+	droneSummaryLabel.TextSize = 13
+	droneSummaryLabel.TextXAlignment = Enum.TextXAlignment.Left
+	droneSummaryLabel.Parent = actRow
+	addTextStroke(droneSummaryLabel, 1.4)
+
+	local equipBestBtn = Instance.new("TextButton")
+	equipBestBtn.Size = UDim2.new(0, 150, 0, 34)
+	equipBestBtn.Position = UDim2.new(1, -328, 0.5, -17)
+	equipBestBtn.BackgroundColor3 = Color3.fromRGB(45, 205, 115)
+	equipBestBtn.Text = "⚡ EQUIP BEST"
+	equipBestBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	equipBestBtn.Font = Enum.Font.FredokaOne
+	equipBestBtn.TextSize = 13
+	equipBestBtn.Parent = actRow
+	addCorner(equipBestBtn, 8)
+	addBorderStroke(equipBestBtn, Color3.fromRGB(255, 255, 255), 1.5)
+	addTextStroke(equipBestBtn, 1.5)
+
+	local craftGoldBtn = Instance.new("TextButton")
+	craftGoldBtn.Size = UDim2.new(0, 164, 0, 34)
+	craftGoldBtn.Position = UDim2.new(1, -170, 0.5, -17)
+	craftGoldBtn.BackgroundColor3 = Color3.fromRGB(245, 185, 40)
+	craftGoldBtn.Text = "✨ CRAFT GOLDEN (3➔1)"
+	craftGoldBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	craftGoldBtn.Font = Enum.Font.FredokaOne
+	craftGoldBtn.TextSize = 12
+	craftGoldBtn.Parent = actRow
+	addCorner(craftGoldBtn, 8)
+	addBorderStroke(craftGoldBtn, Color3.fromRGB(255, 255, 255), 1.5)
+	addTextStroke(craftGoldBtn, 1.5)
+
+	equipBestBtn.MouseButton1Click:Connect(function()
+		playSFX(sfxUpgrade, 0.38)
+		CompanionActionEvent:FireServer("EquipBest")
+	end)
+	craftGoldBtn.MouseButton1Click:Connect(function()
+		playSFX(sfxEvolve, 0.42)
+		CompanionActionEvent:FireServer("CraftGolden")
+	end)
+
+	droneInventoryGridFrame = Instance.new("Frame")
+	droneInventoryGridFrame.Size = UDim2.new(1, -16, 0, 260)
+	droneInventoryGridFrame.AutomaticSize = Enum.AutomaticSize.Y
+	droneInventoryGridFrame.BackgroundTransparency = 1
+	droneInventoryGridFrame.Parent = dronesPage
+
+	local invGrid = Instance.new("UIGridLayout")
+	invGrid.CellSize = UDim2.new(0, 196, 0, 108)
+	invGrid.CellPadding = UDim2.new(0, 10, 0, 10)
+	invGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	invGrid.Parent = droneInventoryGridFrame
+end
+
+-- ============================================================================
+-- 7C. BOOSTERS, PLAYTIME GIFTS & PROMO CODES PAGE (`boostsRewardsPage`)
+-- ============================================================================
+local giftButtonsUI: { [number]: { Btn: TextButton, StatusLbl: TextLabel } } = {}
+local boosterButtonsUI: { [string]: { Btn: TextButton, TimerLbl: TextLabel } } = {}
+do
+	local bList = Instance.new("UIListLayout")
+	bList.Padding = UDim.new(0, 12)
+	bList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	bList.Parent = boostsRewardsPage
+
+	-- 1. Playtime Gift Milestones
+	local giftHdr = Instance.new("TextLabel")
+	giftHdr.Size = UDim2.new(1, -16, 0, 24)
+	giftHdr.BackgroundTransparency = 1
+	giftHdr.Text = "🎁 FREE SESSION PLAYTIME GIFTS (RESET EVERY SESSION!)"
+	giftHdr.TextColor3 = Color3.fromRGB(255, 225, 85)
+	giftHdr.Font = Enum.Font.FredokaOne
+	giftHdr.TextSize = 15
+	giftHdr.TextXAlignment = Enum.TextXAlignment.Left
+	giftHdr.Parent = boostsRewardsPage
+	addTextStroke(giftHdr, 1.5)
+
+	local giftGridFrame = Instance.new("Frame")
+	giftGridFrame.Size = UDim2.new(1, -16, 0, 168)
+	giftGridFrame.BackgroundTransparency = 1
+	giftGridFrame.Parent = boostsRewardsPage
+
+	local gGrid = Instance.new("UIGridLayout")
+	gGrid.CellSize = UDim2.new(0, 268, 0, 78)
+	gGrid.CellPadding = UDim2.new(0, 10, 0, 10)
+	gGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	gGrid.Parent = giftGridFrame
+
+	for _, gDef in ipairs(PlanetConfig.PlaytimeRewards) do
+		local gCard = Instance.new("Frame")
+		gCard.BackgroundColor3 = Color3.fromRGB(26, 36, 68)
+		gCard.Parent = giftGridFrame
+		addCorner(gCard, 12)
+		addBorderStroke(gCard, Color3.fromRGB(255, 205, 75), 1.8)
+
+		local gt = Instance.new("TextLabel")
+		gt.Size = UDim2.new(1, -110, 0, 22)
+		gt.Position = UDim2.new(0, 10, 0, 6)
+		gt.BackgroundTransparency = 1
+		gt.Text = "🎁 " .. gDef.Title
+		gt.TextColor3 = Color3.fromRGB(255, 235, 110)
+		gt.Font = Enum.Font.FredokaOne
+		gt.TextSize = 13
+		gt.TextXAlignment = Enum.TextXAlignment.Left
+		gt.Parent = gCard
+		addTextStroke(gt, 1.3)
+
+		local gr = Instance.new("TextLabel")
+		gr.Size = UDim2.new(1, -110, 0, 36)
+		gr.Position = UDim2.new(0, 10, 0, 28)
+		gr.BackgroundTransparency = 1
+		gr.Text = formatCost(gDef.Reward)
+		gr.TextColor3 = Color3.fromRGB(125, 245, 185)
+		gr.Font = Enum.Font.GothamBold
+		gr.TextSize = 10
+		gr.TextWrapped = true
+		gr.TextXAlignment = Enum.TextXAlignment.Left
+		gr.Parent = gCard
+
+		local gBtn = Instance.new("TextButton")
+		gBtn.Size = UDim2.new(0, 92, 0, 44)
+		gBtn.Position = UDim2.new(1, -100, 0.5, -22)
+		gBtn.BackgroundColor3 = Color3.fromRGB(55, 155, 235)
+		gBtn.Text = "00:00"
+		gBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		gBtn.Font = Enum.Font.FredokaOne
+		gBtn.TextSize = 13
+		gBtn.Parent = gCard
+		addCorner(gBtn, 10)
+		addBorderStroke(gBtn, Color3.fromRGB(255, 255, 255), 1.5)
+		addTextStroke(gBtn, 1.5)
+
+		gBtn.MouseButton1Click:Connect(function()
+			playSFX(sfxUpgrade, 0.4)
+			ClaimPlaytimeGiftEvent:FireServer(gDef.Id)
+		end)
+
+		giftButtonsUI[gDef.Id] = { Btn = gBtn, StatusLbl = gr }
+	end
+
+	-- 2. Timed Gem Boosters Shop
+	local boostHdr = Instance.new("TextLabel")
+	boostHdr.Size = UDim2.new(1, -16, 0, 24)
+	boostHdr.BackgroundTransparency = 1
+	boostHdr.Text = "⚡ TIMED OVERDRIVE BOOSTERS (STACK DURATION WITH 💎 GEMS)"
+	boostHdr.TextColor3 = Color3.fromRGB(95, 235, 255)
+	boostHdr.Font = Enum.Font.FredokaOne
+	boostHdr.TextSize = 15
+	boostHdr.TextXAlignment = Enum.TextXAlignment.Left
+	boostHdr.Parent = boostsRewardsPage
+	addTextStroke(boostHdr, 1.5)
+
+	local boostGridFrame = Instance.new("Frame")
+	boostGridFrame.Size = UDim2.new(1, -16, 0, 178)
+	boostGridFrame.BackgroundTransparency = 1
+	boostGridFrame.Parent = boostsRewardsPage
+
+	local bGrid = Instance.new("UIGridLayout")
+	bGrid.CellSize = UDim2.new(0, 405, 0, 82)
+	bGrid.CellPadding = UDim2.new(0, 12, 0, 10)
+	bGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	bGrid.Parent = boostGridFrame
+
+	for _, bDef in ipairs(PlanetConfig.Boosters) do
+		local bCard = Instance.new("Frame")
+		bCard.BackgroundColor3 = Color3.fromRGB(24, 34, 64)
+		bCard.Parent = boostGridFrame
+		addCorner(bCard, 12)
+		addBorderStroke(bCard, bDef.Color, 2.0)
+
+		local bt = Instance.new("TextLabel")
+		bt.Size = UDim2.new(1, -150, 0, 22)
+		bt.Position = UDim2.new(0, 12, 0, 6)
+		bt.BackgroundTransparency = 1
+		bt.Text = bDef.Icon .. " " .. bDef.Name
+		bt.TextColor3 = bDef.Color
+		bt.Font = Enum.Font.FredokaOne
+		bt.TextSize = 14
+		bt.TextXAlignment = Enum.TextXAlignment.Left
+		bt.Parent = bCard
+		addTextStroke(bt, 1.4)
+
+		local bd = Instance.new("TextLabel")
+		bd.Size = UDim2.new(1, -150, 0, 24)
+		bd.Position = UDim2.new(0, 12, 0, 28)
+		bd.BackgroundTransparency = 1
+		bd.Text = bDef.Description
+		bd.TextColor3 = Color3.fromRGB(215, 226, 245)
+		bd.Font = Enum.Font.GothamBold
+		bd.TextSize = 10
+		bd.TextWrapped = true
+		bd.TextXAlignment = Enum.TextXAlignment.Left
+		bd.Parent = bCard
+
+		local bTimer = Instance.new("TextLabel")
+		bTimer.Size = UDim2.new(1, -150, 0, 18)
+		bTimer.Position = UDim2.new(0, 12, 0, 56)
+		bTimer.BackgroundTransparency = 1
+		bTimer.Text = "Inactive (+15m per purchase)"
+		bTimer.TextColor3 = Color3.fromRGB(255, 225, 105)
+		bTimer.Font = Enum.Font.FredokaOne
+		bTimer.TextSize = 11
+		bTimer.TextXAlignment = Enum.TextXAlignment.Left
+		bTimer.Parent = bCard
+		addTextStroke(bTimer, 1.2)
+
+		local bBtn = Instance.new("TextButton")
+		bBtn.Size = UDim2.new(0, 128, 0, 44)
+		bBtn.Position = UDim2.new(1, -138, 0.5, -22)
+		bBtn.BackgroundColor3 = bDef.Color
+		bBtn.Text = string.format("💎 %d GEMS", bDef.GemCost)
+		bBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		bBtn.Font = Enum.Font.FredokaOne
+		bBtn.TextSize = 13
+		bBtn.Parent = bCard
+		addCorner(bBtn, 10)
+		addBorderStroke(bBtn, Color3.fromRGB(255, 255, 255), 1.6)
+		addTextStroke(bBtn, 1.5)
+
+		bBtn.MouseButton1Click:Connect(function()
+			playSFX(sfxUpgrade, 0.4)
+			BuyBoosterEvent:FireServer(bDef.Id)
+		end)
+
+		boosterButtonsUI[bDef.Id] = { Btn = bBtn, TimerLbl = bTimer }
+	end
+
+	-- 3. Promo Code Redemption Bar
+	local codeCard = Instance.new("Frame")
+	codeCard.Size = UDim2.new(1, -16, 0, 56)
+	codeCard.BackgroundColor3 = Color3.fromRGB(26, 36, 68)
+	codeCard.Parent = boostsRewardsPage
+	addCorner(codeCard, 12)
+	addBorderStroke(codeCard, Color3.fromRGB(245, 130, 250), 2.0)
+
+	local codeLbl = Instance.new("TextLabel")
+	codeLbl.Size = UDim2.new(0, 350, 1, 0)
+	codeLbl.Position = UDim2.new(0, 14, 0, 0)
+	codeLbl.BackgroundTransparency = 1
+	codeLbl.Text = "🎟️ CODES: COSMIC2026, STARFARER, GALAXY, GEMS500"
+	codeLbl.TextColor3 = Color3.fromRGB(245, 175, 255)
+	codeLbl.Font = Enum.Font.FredokaOne
+	codeLbl.TextSize = 13
+	codeLbl.TextXAlignment = Enum.TextXAlignment.Left
+	codeLbl.Parent = codeCard
+	addTextStroke(codeLbl, 1.4)
+
+	local codeBox = Instance.new("TextBox")
+	codeBox.Size = UDim2.new(0, 260, 0, 36)
+	codeBox.Position = UDim2.new(1, -430, 0.5, -18)
+	codeBox.BackgroundColor3 = Color3.fromRGB(16, 22, 42)
+	codeBox.PlaceholderText = "Enter Code (e.g. COSMIC2026)"
+	codeBox.Text = ""
+	codeBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+	codeBox.Font = Enum.Font.FredokaOne
+	codeBox.TextSize = 13
+	codeBox.Parent = codeCard
+	addCorner(codeBox, 8)
+	addBorderStroke(codeBox, Color3.fromRGB(125, 185, 255), 1.5)
+
+	local redeemBtn = Instance.new("TextButton")
+	redeemBtn.Size = UDim2.new(0, 145, 0, 36)
+	redeemBtn.Position = UDim2.new(1, -158, 0.5, -18)
+	redeemBtn.BackgroundColor3 = Color3.fromRGB(55, 215, 120)
+	redeemBtn.Text = "✓ REDEEM CODE"
+	redeemBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	redeemBtn.Font = Enum.Font.FredokaOne
+	redeemBtn.TextSize = 13
+	redeemBtn.Parent = codeCard
+	addCorner(redeemBtn, 8)
+	addBorderStroke(redeemBtn, Color3.fromRGB(255, 255, 255), 1.6)
+	addTextStroke(redeemBtn, 1.5)
+
+	redeemBtn.MouseButton1Click:Connect(function()
+		if #codeBox.Text > 0 then
+			playSFX(sfxUpgrade, 0.4)
+			RedeemPromoCodeEvent:FireServer(codeBox.Text)
+			codeBox.Text = ""
+		end
+	end)
+end
+
+-- ============================================================================
+-- 8. BOTTOM-LEFT / CENTER 9-BUTTON DOCK & PROXIMITY MACHINE / STATION PROMPT
 -- ============================================================================
 local proximityPromptBtn = Instance.new("TextButton")
 proximityPromptBtn.Name = "MachineProximityPrompt"
-proximityPromptBtn.Size = UDim2.new(0, 440, 0, 44)
+proximityPromptBtn.Size = UDim2.new(0, 480, 0, 44)
 proximityPromptBtn.AnchorPoint = Vector2.new(0.5, 1)
 proximityPromptBtn.Position = UDim2.new(0.5, -60, 1, -86)
 proximityPromptBtn.BackgroundColor3 = Color3.fromRGB(24, 36, 72)
 proximityPromptBtn.Text = "⚡ PRESS [E] OR CLICK TO OPEN MACHINE"
 proximityPromptBtn.TextColor3 = Color3.fromRGB(255, 240, 110)
 proximityPromptBtn.Font = Enum.Font.FredokaOne
-proximityPromptBtn.TextSize = 15
+proximityPromptBtn.TextSize = 14
 proximityPromptBtn.Visible = false
 proximityPromptBtn.Parent = inGameHUD
 addCorner(proximityPromptBtn, 14)
@@ -2336,13 +2893,28 @@ local proxStroke = addBorderStroke(proximityPromptBtn, Color3.fromRGB(255, 225, 
 addTextStroke(proximityPromptBtn, 1.8)
 
 local nearestHubMachineId: string? = nil
+local nearestSpaceStationId: string? = nil
 
 local function triggerNearestMachineUI()
+	if nearestSpaceStationId then
+		for _, st in ipairs(PlanetConfig.SpaceStations) do
+			if st.Id == nearestSpaceStationId then
+				local isUnlocked = (st.GemCost == 0) or (currentState.UnlockedStations and currentState.UnlockedStations[st.Id] == true)
+				if not isUnlocked then
+					playSFX(sfxEvolve, 0.45)
+					UnlockSpaceStationEvent:FireServer(st.Id)
+				else
+					toggleTab("WarpAscend", "🛰️ DEEP-SPACE STATIONS, WARP GATES & ASCENSION")
+				end
+				return
+			end
+		end
+	end
 	if not nearestHubMachineId then
 		return
 	end
 	if nearestHubMachineId == "WarpGate" then
-		toggleTab("WarpAscend", "🌀 STARFARER WARP GATE & PLANETARY ASCENSION")
+		toggleTab("WarpAscend", "🛰️ DEEP-SPACE STATIONS, WARP GATES & ASCENSION")
 	else
 		openMachineModal(nearestHubMachineId)
 	end
@@ -2351,7 +2923,7 @@ end
 proximityPromptBtn.MouseButton1Click:Connect(triggerNearestMachineUI)
 
 local bottomLeftDock = Instance.new("Frame")
-bottomLeftDock.Size = UDim2.new(0, 680, 0, 64)
+bottomLeftDock.Size = UDim2.new(0, 740, 0, 64)
 bottomLeftDock.AnchorPoint = Vector2.new(0, 1)
 bottomLeftDock.Position = UDim2.new(0, 14, 1, -12)
 bottomLeftDock.BackgroundTransparency = 1
@@ -2359,42 +2931,42 @@ bottomLeftDock.Parent = inGameHUD
 
 local dockGrid = Instance.new("UIListLayout")
 dockGrid.FillDirection = Enum.FillDirection.Horizontal
-dockGrid.Padding = UDim.new(0, 8)
+dockGrid.Padding = UDim.new(0, 6)
 dockGrid.VerticalAlignment = Enum.VerticalAlignment.Bottom
 dockGrid.Parent = bottomLeftDock
 
 local function makeSimulatorActionBtn(icon: string, label: string, topC: Color3, botC: Color3, onClick: () -> ())
 	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(0, 90, 0, 58)
+	btn.Size = UDim2.new(0, 76, 0, 56)
 	btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 	btn.Text = ""
 	btn.Parent = bottomLeftDock
 	addCorner(btn, 14)
-	addBorderStroke(btn, Color3.fromRGB(255, 255, 255), 2.2)
+	addBorderStroke(btn, Color3.fromRGB(255, 255, 255), 2.0)
 	addGradient(btn, topC, botC, 90)
 	attachBounceAndSFX(btn)
 
 	local ic = Instance.new("TextLabel")
-	ic.Size = UDim2.new(1, 0, 0, 28)
+	ic.Size = UDim2.new(1, 0, 0, 26)
 	ic.Position = UDim2.new(0, 0, 0, 4)
 	ic.BackgroundTransparency = 1
 	ic.Text = icon
 	ic.TextColor3 = Color3.fromRGB(255, 255, 255)
 	ic.Font = Enum.Font.FredokaOne
-	ic.TextSize = 21
+	ic.TextSize = 20
 	ic.Parent = btn
 	addTextStroke(ic, 1.8)
 
 	local lb = Instance.new("TextLabel")
-	lb.Size = UDim2.new(1, 0, 0, 18)
-	lb.Position = UDim2.new(0, 0, 1, -20)
+	lb.Size = UDim2.new(1, 0, 0, 16)
+	lb.Position = UDim2.new(0, 0, 1, -18)
 	lb.BackgroundTransparency = 1
 	lb.Text = label
 	lb.TextColor3 = Color3.fromRGB(255, 255, 255)
 	lb.Font = Enum.Font.FredokaOne
-	lb.TextSize = 11
+	lb.TextSize = 10
 	lb.Parent = btn
-	addTextStroke(lb, 1.6)
+	addTextStroke(lb, 1.5)
 
 	btn.MouseButton1Click:Connect(onClick)
 end
@@ -2415,16 +2987,24 @@ makeSimulatorActionBtn("🔭", "TECH LAB", Color3.fromRGB(115, 185, 250), Color3
 	openMachineModal("AstralObservatory")
 end)
 
+makeSimulatorActionBtn("⬆️", "UPGRADE", Color3.fromRGB(250, 205, 55), Color3.fromRGB(205, 130, 18), function()
+	toggleTab("PlanetValue", "⬆️ PLANET SYSTEMS, DRILL POWER & SIZE UPGRADES")
+end)
+
+makeSimulatorActionBtn("🛸", "DRONES", Color3.fromRGB(95, 235, 195), Color3.fromRGB(25, 145, 115), function()
+	toggleTab("Drones", "🛸 ORBITAL COMPANION DRONES (HATCH, EQUIP & GOLDEN CRAFT)")
+end)
+
+makeSimulatorActionBtn("🎁", "BOOSTS", Color3.fromRGB(255, 145, 65), Color3.fromRGB(195, 65, 18), function()
+	toggleTab("BoostsRewards", "🎁 PLAYTIME GIFTS, TIMED GEM BOOSTERS & PROMO CODES")
+end)
+
 makeSimulatorActionBtn("🧬", "EVOLVE", Color3.fromRGB(190, 95, 250), Color3.fromRGB(115, 35, 200), function()
 	toggleTab("Evolution", "🧬 SPECIES EVOLUTION TREE (4 BALANCED PATHS)")
 end)
 
-makeSimulatorActionBtn("⬆️", "UPGRADE", Color3.fromRGB(250, 205, 55), Color3.fromRGB(205, 130, 18), function()
-	toggleTab("PlanetValue", "⬆️ EXPONENTIAL PLANET SYSTEMS & SIZE UPGRADES")
-end)
-
-makeSimulatorActionBtn("🌀", "WARP", Color3.fromRGB(235, 95, 195), Color3.fromRGB(165, 30, 125), function()
-	toggleTab("WarpAscend", "🌀 STARFARER WARP GATE & PLANETARY ASCENSION")
+makeSimulatorActionBtn("🌀", "STATIONS", Color3.fromRGB(235, 95, 195), Color3.fromRGB(165, 30, 125), function()
+	toggleTab("WarpAscend", "🛰️ DEEP-SPACE STATIONS, WARP GATES & ASCENSION")
 end)
 
 -- ============================================================================
@@ -2540,7 +3120,7 @@ for _, bInfo in ipairs(SpeciesConfig.BranchOrder) do
 	end
 end
 
--- Planet Value Upgrades Grid (6 Exponential Upgrade Tracks with +1 Level & BUY MAX!)
+-- Planet Value Upgrades Grid (6 Upgrade Tracks with +1 Level & BUY MAX!)
 local upgGrid = Instance.new("UIGridLayout")
 upgGrid.CellSize = UDim2.new(0, 392, 0, 164)
 upgGrid.CellPadding = UDim2.new(0, 14, 0, 14)
@@ -2572,7 +3152,7 @@ for _, upg in ipairs(PlanetConfig.PlanetUpgrades) do
 	lvlLbl.Size = UDim2.new(0, 100, 0, 24)
 	lvlLbl.Position = UDim2.new(1, -112, 0, 9)
 	lvlLbl.BackgroundTransparency = 1
-	lvlLbl.Text = "Lv. 0 / 50"
+	lvlLbl.Text = "Lv. 0 / 75"
 	lvlLbl.TextColor3 = Color3.fromRGB(85, 230, 250)
 	lvlLbl.Font = Enum.Font.FredokaOne
 	lvlLbl.TextSize = 14
@@ -2646,6 +3226,51 @@ for _, upg in ipairs(PlanetConfig.PlanetUpgrades) do
 end
 
 -- ============================================================================
+-- 9B. 3D ORBITING COMPANION DRONES MANAGER
+-- ============================================================================
+local activeDroneModels: { { Model: Model, Phase: number } } = {}
+local lastDroneSignature = ""
+
+local function rebuildOrbitingDrones()
+	local owned = currentState.OwnedCompanions or {}
+	local sigParts = {}
+	for _, entry in ipairs(owned) do
+		if entry.Equipped then
+			table.insert(sigParts, tostring(entry.Uid) .. ":" .. tostring(entry.Id) .. ":" .. tostring(entry.Golden))
+		end
+	end
+	local sig = table.concat(sigParts, "|")
+	if sig == lastDroneSignature then
+		return
+	end
+	lastDroneSignature = sig
+
+	for _, d in ipairs(activeDroneModels) do
+		if d.Model then
+			d.Model:Destroy()
+		end
+	end
+	table.clear(activeDroneModels)
+
+	if not currentState.HasCompletedSetup then
+		return
+	end
+
+	local idx = 0
+	for _, entry in ipairs(owned) do
+		if entry.Equipped then
+			idx += 1
+			local dm = PlanetGenerator.BuildCompanionDroneModel(entry.Id, entry.Golden == true)
+			dm.Parent = Workspace
+			table.insert(activeDroneModels, {
+				Model = dm,
+				Phase = idx * ((math.pi * 2) / math.max(1, #sigParts)),
+			})
+		end
+	end
+end
+
+-- ============================================================================
 -- 10. STATE SYNC & LIVE UI REFRESH
 -- ============================================================================
 local function getMissionProgressLocal(goalType: string): number
@@ -2671,10 +3296,27 @@ local function getMissionProgressLocal(goalType: string): number
 			end
 		end
 		return c
+	elseif goalType == "UnlockedStations" then
+		local c = 0
+		for _, v in pairs(currentState.UnlockedStations or {}) do
+			if v then
+				c += 1
+			end
+		end
+		return math.max(0, c - 1)
+	elseif goalType == "CompanionsHatched" then
+		return #(currentState.OwnedCompanions or {})
 	elseif goalType == "PlanetValue" then
 		return currentState.PlanetValueScore or 0
 	end
 	return 0
+end
+
+local function formatSecondsMMSS(sec: number): string
+	local s = math.max(0, math.floor(sec))
+	local m = math.floor(s / 60)
+	local r = s % 60
+	return string.format("%02d:%02d", m, r)
 end
 
 refreshUI = function()
@@ -2686,6 +3328,7 @@ refreshUI = function()
 	end)
 
 	refreshShowroomAndActivePlanetModels()
+	rebuildOrbitingDrones()
 
 	if not currentState.HasCompletedSetup then
 		local pt = PlanetConfig.PlanetTypes[currentState.Look.Biome] or PlanetConfig.PlanetTypes.Terrestrial
@@ -2741,6 +3384,13 @@ refreshUI = function()
 
 	local res = currentState.Resources
 	local rates = currentState.Rates
+	local drillPower = rates.DrillPower or 1
+
+	statCards.Gems.ValueLabel.Text = PlanetConfig.FormatNumber(currentState.Gems or 0)
+	statCards.Gems.RateLabel.Text = "💎 Star Gems"
+
+	statCards.ShardsDrill.ValueLabel.Text = string.format("Lv.%d Drill", drillPower)
+	statCards.ShardsDrill.RateLabel.Text = string.format("🪐 %s Cosmic Shards", PlanetConfig.FormatNumber(currentState.CosmicShards or 0))
 
 	statCards.Minerals.ValueLabel.Text = PlanetConfig.FormatNumber(res.Minerals)
 	statCards.Minerals.RateLabel.Text = string.format("Minerals (+%s/s)", PlanetConfig.FormatNumber(rates.Minerals))
@@ -2762,12 +3412,47 @@ refreshUI = function()
 	local evo = SpeciesConfig.EvolutionNodes[currentState.ActiveEvolutionId] or SpeciesConfig.EvolutionNodes.Awakening
 	statCards.PlanetValue.RateLabel.Text = evo.Name
 
+	-- Update Booster & Next Space Station Tracker Bar
+	local eqCount = 0
+	for _, entry in ipairs(currentState.OwnedCompanions or {}) do
+		if entry.Equipped then
+			eqCount += 1
+		end
+	end
+	local maxSlots = rates.MaxEquippedDrones or 3
+	local activeBoostTags = {}
+	for _, bDef in ipairs(PlanetConfig.Boosters) do
+		local rem = (currentState.ActiveBoosters and currentState.ActiveBoosters[bDef.Id]) or 0
+		if rem > 0 then
+			table.insert(activeBoostTags, string.format("%s %s", bDef.Icon, formatSecondsMMSS(rem)))
+		end
+	end
+	local nextStationText = "All Space Stations Unlocked!"
+	for _, st in ipairs(PlanetConfig.SpaceStations) do
+		local isUnl = (st.GemCost == 0) or (currentState.UnlockedStations and currentState.UnlockedStations[st.Id] == true)
+		if not isUnl then
+			local d = math.floor((st.Position - localPlanetPos).Magnitude)
+			nextStationText = string.format("🛰️ Next Gate: %s (%s studs • %s 💎)", st.Name, PlanetConfig.FormatNumber(d), PlanetConfig.FormatNumber(st.GemCost))
+			break
+		end
+	end
+	local boostSummary = (#activeBoostTags > 0) and (" • Boosts: " .. table.concat(activeBoostTags, " ")) or ""
+	boosterStatusLbl.Text = string.format(
+		"🔨 Drill Power: Lv.%d (Zone %d) • 🛸 Drones: %d/%d • %s%s",
+		drillPower,
+		rates.CurrentZoneTier or 1,
+		eqCount,
+		maxSlots,
+		nextStationText,
+		boostSummary
+	)
+
 	-- Update Planetary Rank & Next Rank Progress Bar
 	local rIdx = currentState.RankIndex or 1
 	local rankDef = PlanetConfig.PlanetaryRanks[rIdx] or PlanetConfig.PlanetaryRanks[1]
 	local nextRankDef = PlanetConfig.PlanetaryRanks[rIdx + 1]
 	local ascCount = currentState.Ascensions or 0
-	local ascMult = math.pow(3, ascCount)
+	local ascMult = math.pow(2.5, ascCount)
 	local ascTag = (ascCount > 0) and string.format(" • 🌟 Asc.%d (%sx)", ascCount, PlanetConfig.FormatNumber(ascMult)) or ""
 
 	rankTitleLbl.Text = string.format(
@@ -2800,8 +3485,13 @@ refreshUI = function()
 		zoneTitleLbl.Text = string.format("★ %s • Press [E] to Open Machine UI!", rates.ActiveDistrictName)
 		zoneTitleLbl.TextColor3 = Color3.fromRGB(255, 230, 95)
 	else
-		zoneTitleLbl.Text = string.format("🌌 %s • Fly with WASD + Shift (Boost)", rates.CurrentSectorName or "Galactic Nexus Hub")
-		zoneTitleLbl.TextColor3 = rates.InHubSanctuary and Color3.fromRGB(105, 245, 180) or Color3.fromRGB(130, 215, 255)
+		local zTier = rates.CurrentZoneTier or 1
+		local zDef = PlanetConfig.DeepSpaceZones[zTier] or PlanetConfig.DeepSpaceZones[1]
+		local drillWarn = (drillPower < zDef.ReqDrill)
+			and string.format(" ⚠️ NEED DRILL LV.%d!", zDef.ReqDrill)
+			or string.format(" (🔨 Drill Lv.%d OK)", zDef.ReqDrill)
+		zoneTitleLbl.Text = string.format("🌌 %s%s • WASD + Shift", rates.CurrentSectorName or zDef.Name, drillWarn)
+		zoneTitleLbl.TextColor3 = (drillPower < zDef.ReqDrill) and Color3.fromRGB(255, 110, 110) or zDef.ThemeColor
 	end
 
 	-- Update Guided Mission Card
@@ -2817,7 +3507,7 @@ refreshUI = function()
 		missionRewardLbl.Text = "🎁 Reward: " .. formatCost(mDef.Reward)
 	else
 		missionHeader.Text = "🏆 ALL MISSIONS COMPLETED!"
-		missionDescLbl.Text = "Open 🌀 WARP to Ascend your planet or explore Deep-Space Sectors!"
+		missionDescLbl.Text = "Open 🌀 STATIONS to Unlock Deep-Space Gates or Ascend your planet!"
 		missionBarFill.Size = UDim2.new(1, 0, 1, 0)
 		missionBarText.Text = "COMPLETE"
 		missionRewardLbl.Text = "🌟 Ready for Planetary Ascension!"
@@ -2826,10 +3516,10 @@ refreshUI = function()
 	-- Update Hub Machine Cards UI
 	local mTiers = currentState.MachineTiers or {}
 	local machineBases: { [string]: { Base: number, Label: string } } = {
-		DysonReactor = { Base = 1.65, Label = "Energy & 1.25x All Yields" },
-		TitanRefinery = { Base = 1.75, Label = "Minerals & +Planet Scale" },
-		GaiaBioVat = { Base = 1.70, Label = "Biomass & +60% Citizen Wave" },
-		AstralObservatory = { Base = 1.80, Label = "Tech & 1.25x All Yields" },
+		DysonReactor = { Base = 0.42, Label = "Energy & All-Yield Boost" },
+		TitanRefinery = { Base = 0.48, Label = "Minerals & +🔨 Drill Power" },
+		GaiaBioVat = { Base = 0.45, Label = "Biomass & Citizen Wave" },
+		AstralObservatory = { Base = 0.50, Label = "Tech & Gem Discovery" },
 	}
 	for mId, ui in pairs(machineCardsUI) do
 		local mConfig = PlanetConfig.HubMachines[mId]
@@ -2837,8 +3527,8 @@ refreshUI = function()
 		local bInfo = machineBases[mId]
 		ui.TierLabel.Text = string.format("Tier %d / %d", tier, mConfig.MaxTier)
 
-		local curMult = math.pow(bInfo.Base, tier)
-		local nxtMult = math.pow(bInfo.Base, tier + 1)
+		local curMult = (1 + tier * bInfo.Base) * math.pow(1.35, math.floor(tier / 5))
+		local nxtMult = (1 + (tier + 1) * bInfo.Base) * math.pow(1.35, math.floor((tier + 1) / 5))
 		ui.EffectLabel.Text = string.format(
 			"Current: %sx %s  ➔  Next Tier: %sx",
 			PlanetConfig.FormatNumber(curMult),
@@ -2864,15 +3554,174 @@ refreshUI = function()
 		end
 	end
 
-	-- Update Ascension & Warp Gate UI
-	local reqAscVal = math.floor(15000 * math.pow(4.5, ascCount))
+	-- Update Deep-Space Stations, Ascension & Cosmic Shard Shop UI
+	for _, st in ipairs(PlanetConfig.SpaceStations) do
+		local ui = warpStationBtns[st.Id]
+		if ui then
+			local isUnlocked = (st.GemCost == 0) or (currentState.UnlockedStations and currentState.UnlockedStations[st.Id] == true)
+			if isUnlocked then
+				ui.Btn.Text = "🌀 WARP HERE"
+				ui.Btn.BackgroundColor3 = st.Color
+				ui.ReqLabel.Text = "✓ WARP GATE UNLOCKED & ACTIVE!"
+				ui.ReqLabel.TextColor3 = Color3.fromRGB(105, 245, 165)
+			else
+				ui.Btn.Text = string.format("🔓 UNLOCK (%s 💎)", PlanetConfig.FormatNumber(st.GemCost))
+				local canUnlock = (drillPower >= st.ReqDrill) and ((currentState.Gems or 0) >= st.GemCost)
+				ui.Btn.BackgroundColor3 = canUnlock and Color3.fromRGB(55, 215, 120) or Color3.fromRGB(85, 75, 115)
+				ui.ReqLabel.Text = string.format(
+					"Requires 🔨 Drill Lv.%d (Yours: Lv.%d)  •  Cost: %s 💎 Gems",
+					st.ReqDrill,
+					drillPower,
+					PlanetConfig.FormatNumber(st.GemCost)
+				)
+				ui.ReqLabel.TextColor3 = (drillPower >= st.ReqDrill) and Color3.fromRGB(255, 230, 105) or Color3.fromRGB(255, 115, 115)
+			end
+		end
+	end
+
+	local reqAscVal = math.floor(250000 * math.pow(5.5, ascCount))
 	ascensionInfoLabel.Text = string.format(
-		"Current Ascensions: %d (%sx Permanent All-Yield Multiplier)\nNext Ascension Requires: %s Planet Value Score (Current: %s)",
+		"Current Ascensions: %d (%sx Permanent All-Yield Multiplier) • 🪐 Cosmic Shards: %s\nNext Ascension Requires: %s Planet Value Score (Keep Gems, Stations & Drones!)",
 		ascCount,
 		PlanetConfig.FormatNumber(ascMult),
-		PlanetConfig.FormatNumber(reqAscVal),
-		PlanetConfig.FormatNumber(currentState.PlanetValueScore)
+		PlanetConfig.FormatNumber(currentState.CosmicShards or 0),
+		PlanetConfig.FormatNumber(reqAscVal)
 	)
+
+	for _, sUpg in ipairs(PlanetConfig.ShardUpgrades) do
+		local ui = shardUpgBtns[sUpg.Id]
+		if ui then
+			local lvl = (currentState.ShardUpgrades and currentState.ShardUpgrades[sUpg.Id]) or 0
+			ui.LvlLabel.Text = string.format("Lv. %d / %d", lvl, sUpg.MaxLevel)
+			if lvl >= sUpg.MaxLevel then
+				ui.Btn.Text = "✓ MAXED"
+				ui.Btn.BackgroundColor3 = Color3.fromRGB(65, 80, 110)
+			else
+				local cost = math.floor(sUpg.BaseShardCost * math.pow(sUpg.CostScale, lvl))
+				ui.Btn.Text = string.format("🪐 %d SHARDS", cost)
+				ui.Btn.BackgroundColor3 = ((currentState.CosmicShards or 0) >= cost) and Color3.fromRGB(165, 65, 235) or Color3.fromRGB(75, 60, 95)
+			end
+		end
+	end
+
+	-- Update Drones Inventory Grid
+	if droneSummaryLabel then
+		droneSummaryLabel.Text = string.format(
+			"🛸 Equipped Drones: %d / %d  •  Total Drone Bonus: %sx All Yields  •  Owned: %d",
+			eqCount,
+			maxSlots,
+			PlanetConfig.FormatNumber(rates.DroneAllYieldMult or 1),
+			#(currentState.OwnedCompanions or {})
+		)
+	end
+	if droneInventoryGridFrame then
+		for _, ch in ipairs(droneInventoryGridFrame:GetChildren()) do
+			if ch:IsA("Frame") then
+				ch:Destroy()
+			end
+		end
+		for _, entry in ipairs(currentState.OwnedCompanions or {}) do
+			local cDef = PlanetConfig.Companions[entry.Id]
+			if cDef then
+				local gMult = entry.Golden and 1.85 or 1.0
+				local dCard = Instance.new("Frame")
+				dCard.BackgroundColor3 = entry.Equipped and Color3.fromRGB(28, 52, 68) or Color3.fromRGB(22, 30, 56)
+				dCard.Parent = droneInventoryGridFrame
+				addCorner(dCard, 12)
+				addBorderStroke(dCard, entry.Golden and Color3.fromRGB(255, 215, 55) or cDef.Color, entry.Equipped and 2.6 or 1.6)
+
+				local dName = Instance.new("TextLabel")
+				dName.Size = UDim2.new(1, -12, 0, 22)
+				dName.Position = UDim2.new(0, 6, 0, 4)
+				dName.BackgroundTransparency = 1
+				dName.Text = (entry.Golden and "✨ GOLDEN " or "🛸 ") .. cDef.Name
+				dName.TextColor3 = entry.Golden and Color3.fromRGB(255, 225, 75) or cDef.Color
+				dName.Font = Enum.Font.FredokaOne
+				dName.TextSize = 12
+				dName.TextWrapped = true
+				dName.Parent = dCard
+				addTextStroke(dName, 1.3)
+
+				local dRarity = Instance.new("TextLabel")
+				dRarity.Size = UDim2.new(1, -12, 0, 16)
+				dRarity.Position = UDim2.new(0, 6, 0, 26)
+				dRarity.BackgroundTransparency = 1
+				dRarity.Text = cDef.Rarity
+				dRarity.TextColor3 = Color3.fromRGB(205, 220, 245)
+				dRarity.Font = Enum.Font.GothamBold
+				dRarity.TextSize = 10
+				dRarity.Parent = dCard
+
+				local dStats = Instance.new("TextLabel")
+				dStats.Size = UDim2.new(1, -12, 0, 28)
+				dStats.Position = UDim2.new(0, 6, 0, 42)
+				dStats.BackgroundTransparency = 1
+				dStats.Text = string.format(
+					"%.2fx Yield • +%d 🔨 Drill • %.2fx 💎",
+					1 + (cDef.AllYieldMult - 1) * gMult,
+					math.floor(cDef.DrillBonus * gMult + 0.5),
+					1 + (cDef.GemMult - 1) * gMult
+				)
+				dStats.TextColor3 = Color3.fromRGB(115, 245, 180)
+				dStats.Font = Enum.Font.FredokaOne
+				dStats.TextSize = 10
+				dStats.TextWrapped = true
+				dStats.Parent = dCard
+				addTextStroke(dStats, 1.1)
+
+				local eqBtn = Instance.new("TextButton")
+				eqBtn.Size = UDim2.new(1, -16, 0, 26)
+				eqBtn.Position = UDim2.new(0, 8, 1, -31)
+				eqBtn.BackgroundColor3 = entry.Equipped and Color3.fromRGB(45, 210, 115) or Color3.fromRGB(52, 74, 128)
+				eqBtn.Text = entry.Equipped and "✓ EQUIPPED" or "EQUIP DRONE"
+				eqBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+				eqBtn.Font = Enum.Font.FredokaOne
+				eqBtn.TextSize = 11
+				eqBtn.Parent = dCard
+				addCorner(eqBtn, 6)
+				addTextStroke(eqBtn, 1.3)
+
+				local uidCopy = entry.Uid
+				eqBtn.MouseButton1Click:Connect(function()
+					playSFX(sfxClick, 0.32)
+					CompanionActionEvent:FireServer("ToggleEquip", uidCopy)
+				end)
+			end
+		end
+	end
+
+	-- Update Playtime Gifts & Boosters UI
+	local pSec = currentState.PlaytimeSeconds or 0
+	for _, gDef in ipairs(PlanetConfig.PlaytimeRewards) do
+		local ui = giftButtonsUI[gDef.Id]
+		if ui then
+			local claimed = currentState.ClaimedGifts and currentState.ClaimedGifts[tostring(gDef.Id)] == true
+			if claimed then
+				ui.Btn.Text = "✓ CLAIMED"
+				ui.Btn.BackgroundColor3 = Color3.fromRGB(55, 70, 95)
+			elseif pSec >= gDef.Seconds then
+				ui.Btn.Text = "🎁 CLAIM!"
+				ui.Btn.BackgroundColor3 = Color3.fromRGB(45, 215, 115)
+			else
+				ui.Btn.Text = formatSecondsMMSS(gDef.Seconds - pSec)
+				ui.Btn.BackgroundColor3 = Color3.fromRGB(55, 135, 215)
+			end
+		end
+	end
+
+	for _, bDef in ipairs(PlanetConfig.Boosters) do
+		local ui = boosterButtonsUI[bDef.Id]
+		if ui then
+			local rem = (currentState.ActiveBoosters and currentState.ActiveBoosters[bDef.Id]) or 0
+			if rem > 0 then
+				ui.TimerLbl.Text = "⚡ ACTIVE: " .. formatSecondsMMSS(rem) .. " remaining"
+				ui.TimerLbl.TextColor3 = Color3.fromRGB(105, 250, 165)
+			else
+				ui.TimerLbl.Text = "Inactive (+15m per purchase)"
+				ui.TimerLbl.TextColor3 = Color3.fromRGB(215, 225, 245)
+			end
+		end
+	end
 
 	-- Update Evolution Tree Buttons
 	for nodeId, ui in pairs(evoNodeButtons) do
@@ -2928,7 +3777,7 @@ refreshUI = function()
 end
 
 -- ============================================================================
--- 11. 3D CAMERA, FLIGHT CONTROLS & PROXIMITY MACHINE DETECTOR
+-- 11. 3D CAMERA, FLIGHT CONTROLS, ORBITING DRONES & STATION DETECTOR
 -- ============================================================================
 local camYaw = 0
 local camPitch = -0.18
@@ -2937,6 +3786,7 @@ local creatorOrbitYaw = 0.35
 local creatorOrbitPitch = -0.15
 local creatorZoom = 56
 local isRightMouseDown = false
+local droneOrbitClock = 0
 
 local moveKeys = {
 	W = false,
@@ -2974,7 +3824,7 @@ UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: 
 	elseif kc == Enum.KeyCode.LeftShift then
 		moveKeys.LeftShift = true
 	elseif kc == Enum.KeyCode.E or kc == Enum.KeyCode.F then
-		if currentState.HasCompletedSetup and nearestHubMachineId then
+		if currentState.HasCompletedSetup and (nearestHubMachineId or nearestSpaceStationId) then
 			triggerNearestMachineUI()
 		end
 	end
@@ -3117,7 +3967,6 @@ RunService.RenderStepped:Connect(function(dt: number)
 
 	if localActivePlanetModel then
 		localActivePlanetModel:PivotTo(CFrame.new(localPlanetPos) * planetTiltCF)
-		-- Scale wake particle emission smoothly with flight speed (0 when stationary!)
 		local rootPart = localActivePlanetModel.PrimaryPart
 		if rootPart then
 			local wake = rootPart:FindFirstChild("PlanetarySlipstreamVFX") :: ParticleEmitter?
@@ -3125,6 +3974,19 @@ RunService.RenderStepped:Connect(function(dt: number)
 				local spd = localVelocity.Magnitude
 				wake.Rate = (spd > 15) and math.floor(math.clamp(spd * 0.14, 6, 28)) or 0
 			end
+		end
+	end
+
+	-- Orbit Equipped 3D Companion Drones Smoothly Around the Player's Planet!
+	droneOrbitClock += dt * 1.85
+	local pScale = (currentState.Rates and currentState.Rates.PlanetScale) or 1.0
+	local orbitRad = 24 * pScale + 8
+	for i, dInfo in ipairs(activeDroneModels) do
+		if dInfo.Model and dInfo.Model.Parent then
+			local ang = droneOrbitClock + dInfo.Phase
+			local bobY = math.sin(droneOrbitClock * 2.2 + i * 1.4) * 3.2
+			local dPos = localPlanetPos + Vector3.new(math.cos(ang) * orbitRad, bobY + 4, math.sin(ang) * orbitRad)
+			dInfo.Model:PivotTo(CFrame.new(dPos) * CFrame.Angles(0, -ang + math.pi / 2, math.rad(8)))
 		end
 	end
 
@@ -3138,7 +4000,7 @@ RunService.RenderStepped:Connect(function(dt: number)
 		sfxThrusterLoop.Volume = 0
 	end
 
-	-- Check Proximity to Hub Machines for Interactive Prompt Button
+	-- Check Proximity to Hub Machines OR Deep-Space Outpost Stations
 	local foundMachine: string? = nil
 	local foundDist = math.huge
 	for mId, mDef in pairs(PlanetConfig.HubMachines) do
@@ -3149,7 +4011,35 @@ RunService.RenderStepped:Connect(function(dt: number)
 		end
 	end
 	nearestHubMachineId = foundMachine
-	if foundMachine then
+
+	local foundStation: any = nil
+	local foundStationDist = math.huge
+	for _, st in ipairs(PlanetConfig.SpaceStations) do
+		if st.Id ~= "Station_Hub" then
+			local d = (localPlanetPos - st.Position).Magnitude
+			if d <= (st.DockRadius + 55) and d < foundStationDist then
+				foundStationDist = d
+				foundStation = st
+			end
+		end
+	end
+	nearestSpaceStationId = foundStation and foundStation.Id or nil
+
+	if foundStation then
+		local isUnl = currentState.UnlockedStations and currentState.UnlockedStations[foundStation.Id] == true
+		proximityPromptBtn.Visible = true
+		proxStroke.Color = foundStation.Color
+		if isUnl then
+			proximityPromptBtn.Text = string.format("🛰️ PRESS [E] AT %s: OPEN WARP NETWORK", string.upper(foundStation.Name))
+		else
+			proximityPromptBtn.Text = string.format(
+				"🔓 PRESS [E] TO UNLOCK %s WARP GATE (%s 💎 • DRILL LV.%d)",
+				string.upper(foundStation.Name),
+				PlanetConfig.FormatNumber(foundStation.GemCost),
+				foundStation.ReqDrill
+			)
+		end
+	elseif foundMachine then
 		local mDef = PlanetConfig.HubMachines[foundMachine]
 		proximityPromptBtn.Visible = true
 		proximityPromptBtn.Text = string.format("%s PRESS [E] OR CLICK TO OPEN: %s", mDef.Icon, string.upper(mDef.Name))

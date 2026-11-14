@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local PlanetConfig = require(Shared:WaitForChild("PlanetConfig"))
 local PlanetGenerator = require(Shared:WaitForChild("PlanetGenerator"))
 
 local SpaceWorldBuilder = {}
@@ -935,7 +936,177 @@ function SpaceWorldBuilder.BuildCosmos(): Model
 	end)
 
 	-- ========================================================================
-	-- 4. INFINITE PROCEDURAL SPACE COLLECTIBLES & STAR CHUNKS CONTAINER
+	-- 4. SCATTERED DEEP-SPACE OUTPOST STATIONS WITH GEM-UNLOCKABLE WARP GATES!
+	-- ========================================================================
+	local stationsModel = makePersistentModel("DeepSpaceStations", cosmos)
+	for _, stDef in ipairs(PlanetConfig.SpaceStations) do
+		if stDef.Id ~= "Hub" then
+			local stRoot = makePersistentModel("SpaceStation_" .. stDef.Id, stationsModel)
+			local center = stDef.Position
+			local stColor = stDef.Color
+
+			-- 1. Lower Keel & Multi-Tiered Matte Basalt/Slate Command Deck
+			makePart({
+				Name = "StationLowerKeel",
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(36, 68, 68),
+				CFrame = CFrame.new(center + Vector3.new(0, -24, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+				Color = BASALT_DARK,
+				Material = Enum.Material.Basalt,
+				Parent = stRoot,
+			})
+			makePart({
+				Name = "StationOuterHullRing",
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(12, 156, 156),
+				CFrame = CFrame.new(center + Vector3.new(0, -8, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+				Color = BASALT_DARK,
+				Material = Enum.Material.Basalt,
+				Parent = stRoot,
+			})
+			makePart({
+				Name = "StationMainDeck",
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(6, 142, 142),
+				CFrame = CFrame.new(center + Vector3.new(0, -2, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+				Color = SLATE_MID,
+				Material = Enum.Material.Slate,
+				Parent = stRoot,
+			})
+			makePart({
+				Name = "StationLandingPad",
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(2.5, 118, 118),
+				CFrame = CFrame.new(center + Vector3.new(0, 1, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+				Color = CONCRETE_LIGHT,
+				Material = Enum.Material.Cobblestone,
+				Parent = stRoot,
+			})
+
+			-- 2. 4 Radial Solar / Radiator Wings & 8 Docking Pylons
+			for w = 1, 8 do
+				local a = (w / 8) * math.pi * 2
+				local rimCF = CFrame.new(center) * CFrame.Angles(0, a, 0) * CFrame.new(0, 8, -68)
+				makePart({
+					Name = "DockingPylon_" .. w,
+					Size = Vector3.new(10, 24, 12),
+					CFrame = rimCF,
+					Color = BASALT_DARK,
+					Material = Enum.Material.Basalt,
+					Parent = stRoot,
+				})
+				makePart({
+					Name = "DockingBeacon_" .. w,
+					Shape = Enum.PartType.Ball,
+					Size = Vector3.new(6, 6, 6),
+					CFrame = rimCF * CFrame.new(0, 14, 0),
+					Color = stColor,
+					Material = Enum.Material.Neon,
+					Parent = stRoot,
+				})
+
+				if w % 2 == 1 then
+					local wingCF = CFrame.new(center) * CFrame.Angles(0, a, 0) * CFrame.new(0, -4, -108)
+					makePart({
+						Name = "SolarArrayStrut_" .. w,
+						Size = Vector3.new(6, 4, 68),
+						CFrame = wingCF,
+						Color = CONCRETE_LIGHT,
+						Material = Enum.Material.DiamondPlate,
+						Parent = stRoot,
+					})
+					makePart({
+						Name = "SolarArrayPanel_" .. w,
+						Size = Vector3.new(28, 1.5, 58),
+						CFrame = wingCF * CFrame.new(0, 1.5, 0),
+						Color = Color3.fromRGB(32, 48, 82):Lerp(stColor, 0.25),
+						Material = Enum.Material.Slate,
+						Parent = stRoot,
+					})
+				end
+			end
+
+			-- 3. Station Command Citadel & High-Altitude Beacon Spire (Rear of Deck)
+			local towerPos = center + Vector3.new(0, 22, -36)
+			makePart({
+				Name = "StationCommandTower",
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(42, 34, 34),
+				CFrame = CFrame.new(towerPos) * CFrame.Angles(0, 0, math.rad(90)),
+				Color = SLATE_MID,
+				Material = Enum.Material.Concrete,
+				Parent = stRoot,
+			})
+			makePart({
+				Name = "StationCommandDome",
+				Shape = Enum.PartType.Ball,
+				Size = Vector3.new(32, 22, 32),
+				CFrame = CFrame.new(towerPos + Vector3.new(0, 20, 0)),
+				Color = SANDSTONE_TRIM,
+				Material = Enum.Material.Sandstone,
+				Parent = stRoot,
+			})
+			makePart({
+				Name = "StationBeaconSpire",
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(48, 3.5, 3.5),
+				CFrame = CFrame.new(towerPos + Vector3.new(0, 48, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+				Color = BASALT_DARK,
+				Material = Enum.Material.Basalt,
+				Parent = stRoot,
+			})
+			local beaconOrb = makePart({
+				Name = "StationBeaconTop",
+				Shape = Enum.PartType.Ball,
+				Size = Vector3.new(12, 12, 12),
+				CFrame = CFrame.new(towerPos + Vector3.new(0, 74, 0)),
+				Color = stColor,
+				Material = Enum.Material.Neon,
+				Parent = stRoot,
+			})
+			attachStarPngSprite(beaconOrb, stColor, 42, 30000)
+
+			-- 4. THE SPACE STATION WARP GATE STARGATE RING (Center-Front of Deck)
+			local stGateCenter = center + Vector3.new(0, 36, 18)
+			local stGateRadius = 32
+			local stGateSegs = 24
+			local stSegLen = (2 * math.pi * stGateRadius) / stGateSegs * 1.08
+			for s = 1, stGateSegs do
+				local a = (s / stGateSegs) * math.pi * 2
+				local segCF = CFrame.new(stGateCenter) * CFrame.Angles(0, 0, a) * CFrame.new(0, stGateRadius, 0)
+				makePart({
+					Name = "StationGateArch_" .. s,
+					Size = Vector3.new(8, stSegLen, 8),
+					CFrame = segCF,
+					Color = (s % 2 == 0) and BASALT_DARK or SANDSTONE_TRIM,
+					Material = (s % 2 == 0) and Enum.Material.Basalt or Enum.Material.Sandstone,
+					Parent = stRoot,
+				})
+			end
+			local stPortal = makePart({
+				Name = "StationWarpPortal_" .. stDef.Id,
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(2.5, 58, 58),
+				CFrame = CFrame.new(stGateCenter) * CFrame.Angles(0, math.rad(90), 0),
+				Color = stColor,
+				Material = Enum.Material.Neon,
+				Transparency = 0.42,
+				Parent = stRoot,
+			})
+			stRoot.PrimaryPart = stPortal
+
+			makeMachineBillboard(
+				stPortal,
+				string.format("%s (%s💎 TO UNLOCK)", string.upper(stDef.Name), PlanetConfig.FormatNumber(stDef.GemCost)),
+				string.format("FLY NEAR & PRESS [E] TO UNLOCK WARP GATE • %s", stDef.StationUnlockPerk),
+				stColor,
+				42
+			)
+		end
+	end
+
+	-- ========================================================================
+	-- 5. INFINITE PROCEDURAL SPACE COLLECTIBLES & STAR CHUNKS CONTAINER
 	-- ========================================================================
 	local nodesModel = makePersistentModel("CosmicResourceNodes", cosmos)
 	nodesContainer = nodesModel
@@ -947,16 +1118,17 @@ function SpaceWorldBuilder.BuildCosmos(): Model
 end
 
 -- ============================================================================
--- 5. INFINITE PROCEDURAL SPACE CHUNK GENERATOR (Detailed Models + Local Stars!)
+-- 6. DISTANCE-TIERED PROCEDURAL SPACE CHUNK GENERATOR (Better Materials Further Out!)
 -- ============================================================================
 local CHUNK_SIZE = 550
-local COLLECTIBLE_DEFS = {
-	{ Type = "Minerals", Title = "Asteroid Ore Geode", Color = Color3.fromRGB(235, 175, 55) },
-	{ Type = "Biomass", Title = "Botanical Spore-Asteroid", Color = Color3.fromRGB(75, 225, 115) },
-	{ Type = "Energy", Title = "Radioactive Pulsar Core", Color = Color3.fromRGB(65, 215, 255) },
-	{ Type = "Tech", Title = "Precursor Satellite", Color = Color3.fromRGB(185, 125, 255) },
-	{ Type = "PopulationPod", Title = "Colonist Ark-Pod", Color = Color3.fromRGB(255, 215, 95) },
-	{ Type = "SupernovaChest", Title = "Supernova Relic Vault", Color = Color3.fromRGB(255, 145, 55) },
+local COLLECTIBLE_COLORS: { [string]: Color3 } = {
+	Minerals = Color3.fromRGB(235, 175, 55),
+	Biomass = Color3.fromRGB(75, 225, 115),
+	Energy = Color3.fromRGB(65, 215, 255),
+	Tech = Color3.fromRGB(185, 125, 255),
+	StarGems = Color3.fromRGB(95, 235, 255),
+	PopulationPod = Color3.fromRGB(255, 215, 95),
+	SupernovaChest = Color3.fromRGB(255, 145, 55),
 }
 
 local CHUNK_STAR_COLORS = {
@@ -968,6 +1140,18 @@ local CHUNK_STAR_COLORS = {
 
 local function getChunkKey(cx: number, cy: number, cz: number): string
 	return string.format("%d_%d_%d", cx, cy, cz)
+end
+
+local function isTooCloseToHubOrStation(pos: Vector3): boolean
+	if pos.Magnitude < 210 then
+		return true
+	end
+	for _, st in ipairs(PlanetConfig.SpaceStations) do
+		if st.Id ~= "Hub" and (pos - st.Position).Magnitude < 145 then
+			return true
+		end
+	end
+	return false
 end
 
 local function spawnProceduralChunk(cx: number, cy: number, cz: number)
@@ -986,8 +1170,8 @@ local function spawnProceduralChunk(cx: number, cy: number, cz: number)
 
 	local chunkOrigin = Vector3.new(cx * CHUNK_SIZE, cy * 320, cz * CHUNK_SIZE)
 
-	-- Spawn 4 to 6 high-detail collectible space objects per chunk (outside the central Hub core)
-	local itemCount = rng:NextInteger(4, 6)
+	-- Spawn 5 to 7 distance-tiered collectible space objects per chunk
+	local itemCount = rng:NextInteger(5, 7)
 	for _ = 1, itemCount do
 		local pos = chunkOrigin + Vector3.new(
 			rng:NextNumber(-CHUNK_SIZE * 0.45, CHUNK_SIZE * 0.45),
@@ -995,32 +1179,50 @@ local function spawnProceduralChunk(cx: number, cy: number, cz: number)
 			rng:NextNumber(-CHUNK_SIZE * 0.45, CHUNK_SIZE * 0.45)
 		)
 
-		if pos.Magnitude >= 195 then
+		if not isTooCloseToHubOrStation(pos) then
+			local dist = pos.Magnitude
+			local zoneDef = PlanetConfig.GetZoneForDistance(dist)
+
 			local roll = rng:NextInteger(1, 100)
-			local def = COLLECTIBLE_DEFS[1]
-			if roll <= 23 then
-				def = COLLECTIBLE_DEFS[1]
-			elseif roll <= 46 then
-				def = COLLECTIBLE_DEFS[2]
-			elseif roll <= 69 then
-				def = COLLECTIBLE_DEFS[3]
-			elseif roll <= 86 then
-				def = COLLECTIBLE_DEFS[4]
+			local resType = "Minerals"
+			if roll <= 20 then
+				resType = "Minerals"
+			elseif roll <= 40 then
+				resType = "Biomass"
+			elseif roll <= 60 then
+				resType = "Energy"
+			elseif roll <= 75 then
+				resType = "Tech"
+			elseif roll <= 89 then
+				resType = "StarGems"
 			elseif roll <= 95 then
-				def = COLLECTIBLE_DEFS[5]
+				resType = "PopulationPod"
 			else
-				def = COLLECTIBLE_DEFS[6]
+				resType = "SupernovaChest"
 			end
 
-			local colModel = PlanetGenerator.BuildSpaceCollectibleModel(def.Type, pos, def.Title, def.Color)
+			local nodeTitle = (zoneDef.NodeNames and (zoneDef.NodeNames :: any)[resType]) or "Cosmic Anomaly"
+			local baseCol = COLLECTIBLE_COLORS[resType] or zoneDef.ThemeColor
+
+			local colModel = PlanetGenerator.BuildSpaceCollectibleModel(
+				resType,
+				pos,
+				nodeTitle,
+				baseCol,
+				zoneDef.Tier
+			)
 			local rootPart = colModel.PrimaryPart
 			if rootPart then
 				rootPart:SetAttribute("IsSpaceCollectible", true)
-				rootPart:SetAttribute("ResourceType", def.Type)
-				rootPart:SetAttribute("NodeTitle", def.Title)
+				rootPart:SetAttribute("ResourceType", resType)
+				rootPart:SetAttribute("NodeTitle", nodeTitle)
+				rootPart:SetAttribute("ZoneTier", zoneDef.Tier)
+				rootPart:SetAttribute("ReqDrill", zoneDef.ReqDrill)
+				rootPart:SetAttribute("BaseNodeValue", zoneDef.BaseNodeValue)
+				rootPart:SetAttribute("YieldMultiplier", zoneDef.YieldMultiplier)
+				rootPart:SetAttribute("GemMin", zoneDef.GemRange[1])
+				rootPart:SetAttribute("GemMax", zoneDef.GemRange[2])
 				rootPart:SetAttribute("Available", true)
-				local distMult = math.max(1.0, math.pow(pos.Magnitude / 400, 1.35))
-				rootPart:SetAttribute("DistanceMultiplier", distMult)
 			end
 			colModel.Parent = chunkModel
 		end

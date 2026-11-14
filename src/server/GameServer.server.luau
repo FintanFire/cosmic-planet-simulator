@@ -29,6 +29,13 @@ local UnlockEvolutionEvent = makeRemoteEvent("UnlockEvolution")
 local UpgradePlanetValueEvent = makeRemoteEvent("UpgradePlanetValue")
 local UpgradeMachineEvent = makeRemoteEvent("UpgradeMachine")
 local WarpToSectorEvent = makeRemoteEvent("WarpToSector")
+local UnlockSpaceStationEvent = makeRemoteEvent("UnlockSpaceStation")
+local HatchCompanionPodEvent = makeRemoteEvent("HatchCompanionPod")
+local CompanionActionEvent = makeRemoteEvent("CompanionAction")
+local BuyBoosterEvent = makeRemoteEvent("BuyBooster")
+local ClaimPlaytimeGiftEvent = makeRemoteEvent("ClaimPlaytimeGift")
+local RedeemPromoCodeEvent = makeRemoteEvent("RedeemPromoCode")
+local BuyShardUpgradeEvent = makeRemoteEvent("BuyShardUpgrade")
 local AscendPlanetEvent = makeRemoteEvent("AscendPlanet")
 local TeleportToHubEvent = makeRemoteEvent("TeleportToHub")
 local FlightSyncEvent = makeRemoteEvent("FlightSync")
@@ -42,7 +49,7 @@ local SpeciesConfig = require(Shared:WaitForChild("SpeciesConfig"))
 local PlanetGenerator = require(Shared:WaitForChild("PlanetGenerator"))
 local SpaceWorldBuilder = require(script.Parent:WaitForChild("SpaceWorldBuilder"))
 
--- 2. Build Open Deep Space Environment & Grand Galactic Nexus Hub
+-- 2. Build Open Deep Space Environment, Galactic Nexus Hub & 6 Deep-Space Outpost Stations
 local cosmosModel = SpaceWorldBuilder.BuildCosmos()
 local nodesFolder = cosmosModel:WaitForChild("CosmicResourceNodes")
 
@@ -59,7 +66,13 @@ end
 
 local HUB_SPAWN_POS = Vector3.new(0, 48, 215)
 
--- 3. Player Session Data Store
+export type CompanionInstance = {
+	Uid: string,
+	Id: string,
+	IsGolden: boolean,
+	Equipped: boolean,
+}
+
 type PlayerState = {
 	HasCompletedSetup: boolean,
 	Resources: {
@@ -68,6 +81,8 @@ type PlayerState = {
 		Energy: number,
 		Tech: number,
 	},
+	Gems: number,
+	CosmicShards: number,
 	Population: number,
 	PlanetValueScore: number,
 	RankIndex: number,
@@ -75,6 +90,15 @@ type PlayerState = {
 	Ascensions: number,
 	MissionIndex: number,
 	OrbsHarvested: number,
+	DronesHatched: number,
+	PlaytimeSeconds: number,
+	ClaimedPlaytimeGifts: { [number]: boolean },
+	RedeemedCodes: { [string]: boolean },
+	UnlockedStations: { [string]: boolean },
+	ActiveBoosters: { [string]: number }, -- Remaining seconds
+	ShardUpgrades: { [string]: number },
+	Companions: { CompanionInstance },
+	MaxEquippedDrones: number,
 	Look: { [string]: any },
 	SpeciesId: string,
 	UnlockedEvolutions: { [string]: boolean },
@@ -87,15 +111,23 @@ type PlayerState = {
 		Energy: number,
 		Tech: number,
 		FlightSpeed: number,
+		DrillPower: number,
+		GlobalYieldMult: number,
+		GemMultiplier: number,
+		CompanionMult: number,
 		InHubSanctuary: boolean,
 		ActiveDistrictName: string,
 		CurrentSectorName: string,
+		CurrentZoneTier: number,
+		CurrentZoneReqDrill: number,
 	},
 	PlanetPosition: Vector3,
 	PlanetModel: Model?,
+	LastDrillWarnTime: number,
 }
 
 local playerStates: { [Player]: PlayerState } = {}
+local nextCompanionUid = 1000
 
 local function getTotalUpgradeLevels(state: PlayerState): number
 	local sum = 0
@@ -123,6 +155,26 @@ local function getUnlockedEvolutionCount(state: PlayerState): number
 	return count
 end
 
+local function getUnlockedStationCount(state: PlayerState): number
+	local count = 0
+	for stId, isUnl in pairs(state.UnlockedStations) do
+		if isUnl and stId ~= "Hub" then
+			count += 1
+		end
+	end
+	return count
+end
+
+local function getEquippedCount(state: PlayerState): number
+	local c = 0
+	for _, d in ipairs(state.Companions) do
+		if d.Equipped then
+			c += 1
+		end
+	end
+	return c
+end
+
 local function computeCurrentMissionProgress(state: PlayerState, goalType: string): number
 	if goalType == "TotalUpgrades" then
 		return getTotalUpgradeLevels(state)
@@ -134,6 +186,12 @@ local function computeCurrentMissionProgress(state: PlayerState, goalType: strin
 		return state.PlanetValueScore
 	elseif goalType == "TotalMachineTiers" or goalType == "MachineTiers" then
 		return getTotalMachineTiers(state)
+	elseif goalType == "DronesHatched" then
+		return state.DronesHatched
+	elseif goalType == "DrillLevel" then
+		return state.Rates.DrillPower
+	elseif goalType == "StationsUnlocked" then
+		return getUnlockedStationCount(state)
 	end
 	return 0
 end
@@ -154,13 +212,15 @@ local function checkAndCompleteMissions(player: Player, state: PlayerState)
 			state.Resources.Biomass += (rw.Biomass or 0)
 			state.Resources.Energy += (rw.Energy or 0)
 			state.Resources.Tech += (rw.Tech or 0)
+			state.Gems += (rw.Gems or 0)
 			state.MissionIndex += 1
 
 			NotificationEvent:FireClient(
 				player,
 				string.format(
-					"🎯 MISSION COMPLETE: %s! (+%s Minerals, +%s Biomass, +%s Energy, +%s Tech)",
+					"🎯 MISSION COMPLETE: %s! (+%s💎 Gems, +%s⛏, +%s🌿, +%s⚡, +%s🔬)",
 					mDef.Title,
+					PlanetConfig.FormatNumber(rw.Gems or 0),
 					PlanetConfig.FormatNumber(rw.Minerals or 0),
 					PlanetConfig.FormatNumber(rw.Biomass or 0),
 					PlanetConfig.FormatNumber(rw.Energy or 0),
@@ -174,11 +234,21 @@ local function checkAndCompleteMissions(player: Player, state: PlayerState)
 	end
 end
 
+-- Helper for balanced upgrade track multiplier: steady growth + 1.22x milestone every 5 levels (prevents instant maxing!)
+local function calcTrackMultiplier(lvl: number, perLvlAdd: number, milestoneBase: number): number
+	if lvl <= 0 then
+		return 1.0
+	end
+	local milestones = math.floor(lvl / 5)
+	return (1 + lvl * perLvlAdd) * math.pow(milestoneBase, milestones)
+end
+
 local function recalculateRates(player: Player, state: PlayerState)
 	local pType = PlanetConfig.PlanetTypes[state.Look.Biome] or PlanetConfig.PlanetTypes.Terrestrial
 	local species = SpeciesConfig.Species[state.SpeciesId] or SpeciesConfig.Species.Terranauts
 
-	local popFactor = 1 + math.pow(math.max(state.Population, 1) / 10, 0.62)
+	-- Logarithmic population factor so citizen growth rewards you without breaking the economy
+	local popFactor = 1 + math.log10(math.max(10, state.Population)) * 0.45
 
 	local minMult = pType.Multipliers.Minerals * species.BaseMultipliers.Minerals
 	local bioMult = pType.Multipliers.Biomass * species.BaseMultipliers.Biomass
@@ -186,27 +256,28 @@ local function recalculateRates(player: Player, state: PlayerState)
 	local techMult = pType.Multipliers.Tech * species.BaseMultipliers.Tech
 	local speedMult = pType.Multipliers.FlightSpeed * species.BaseMultipliers.FlightSpeed
 	local valMult = pType.Multipliers.PlanetValue or 1.0
+	local gemMult = 1.0
 
 	local feat = state.Look.SurfaceFeature
 	if feat == "Forests" then
-		bioMult *= 1.18
+		bioMult *= 1.15
 	elseif feat == "Crystals" then
-		engMult *= 1.18
+		engMult *= 1.15
 	elseif feat == "Volcanoes" then
-		minMult *= 1.18
+		minMult *= 1.15
 	elseif feat == "Citadels" then
-		techMult *= 1.18
+		techMult *= 1.15
 	elseif feat == "CoralReefs" then
-		bioMult *= 1.12
-		engMult *= 1.12
+		bioMult *= 1.10
+		engMult *= 1.10
 	elseif feat == "FloatingIsles" then
-		minMult *= 1.12
-		bioMult *= 1.12
-		engMult *= 1.12
-		techMult *= 1.12
+		minMult *= 1.10
+		bioMult *= 1.10
+		engMult *= 1.10
+		techMult *= 1.10
 	end
 
-	-- Exponential Planet Upgrades (1.42^lvl & 1.35^metroLvl)
+	-- Layer 1: Planet Upgrade Tracks (Balanced milestone curve)
 	local coreLvl = state.PlanetUpgrades.CoreDensity or 0
 	local bioLvl = state.PlanetUpgrades.BiosphereFertility or 0
 	local magLvl = state.PlanetUpgrades.MagnetosphereDynamo or 0
@@ -214,26 +285,28 @@ local function recalculateRates(player: Player, state: PlayerState)
 	local metroLvl = state.PlanetUpgrades.CivilizationMetropolis or 0
 	local harvLvl = state.PlanetUpgrades.AnomalyHarvester or 0
 
-	local metroBonus = math.pow(1.35, metroLvl)
-	minMult *= math.pow(1.42, coreLvl) * metroBonus
-	bioMult *= math.pow(1.42, bioLvl) * metroBonus
-	engMult *= math.pow(1.42, magLvl) * metroBonus
-	techMult *= math.pow(1.45, orbLvl) * metroBonus
-	speedMult *= (1 + magLvl * 0.08)
+	local metroBonus = calcTrackMultiplier(metroLvl, 0.25, 1.20)
+	minMult *= calcTrackMultiplier(coreLvl, 0.35, 1.22) * metroBonus
+	bioMult *= calcTrackMultiplier(bioLvl, 0.35, 1.22) * metroBonus
+	engMult *= calcTrackMultiplier(magLvl, 0.35, 1.22) * metroBonus
+	techMult *= calcTrackMultiplier(orbLvl, 0.38, 1.24) * metroBonus
+	speedMult *= (1 + magLvl * 0.035)
+	gemMult *= (1 + harvLvl * 0.08)
 
-	-- Exponential Hub Machine Tiers (1.65^tier to 1.80^tier)
+	-- Layer 2: Hub Machine Overclock Tiers
 	local dysonTier = state.MachineTiers.DysonReactor or 0
 	local titanTier = state.MachineTiers.TitanRefinery or 0
 	local gaiaTier = state.MachineTiers.GaiaBioVat or 0
 	local astralTier = state.MachineTiers.AstralObservatory or 0
 
-	engMult *= math.pow(1.65, dysonTier)
-	minMult *= math.pow(1.75, titanTier)
-	bioMult *= math.pow(1.70, gaiaTier)
-	techMult *= math.pow(1.80, astralTier)
-	local allMachineBonus = math.pow(1.25, dysonTier) * math.pow(1.25, astralTier)
+	engMult *= math.pow(1.38, dysonTier)
+	minMult *= math.pow(1.42, titanTier)
+	bioMult *= math.pow(1.40, gaiaTier)
+	techMult *= math.pow(1.45, astralTier)
+	local allMachineBonus = math.pow(1.12, dysonTier)
+	gemMult *= (1 + astralTier * 0.10)
 
-	-- Species Evolution Multipliers
+	-- Layer 3: Species Evolution Multipliers
 	local activeNode = SpeciesConfig.EvolutionNodes[state.ActiveEvolutionId] or SpeciesConfig.EvolutionNodes.Awakening
 	minMult *= activeNode.Multipliers.Minerals
 	bioMult *= activeNode.Multipliers.Biomass
@@ -242,14 +315,88 @@ local function recalculateRates(player: Player, state: PlayerState)
 	speedMult *= activeNode.Multipliers.FlightSpeed
 
 	local unlockedCount = getUnlockedEvolutionCount(state)
-	local masteryBonus = math.pow(1.15, unlockedCount - 1)
-	local ascensionMult = math.pow(3.0, state.Ascensions)
+	local masteryBonus = math.pow(1.10, unlockedCount - 1)
 
-	-- Open-Space Hub Sanctuary & Machine Proximity Buffs
+	-- Layer 4: Unlocked Space Stations Passive Network Perks
+	if state.UnlockedStations["Station_Belt"] then
+		minMult *= 1.20
+		gemMult *= 1.10
+	end
+	if state.UnlockedStations["Station_Cryo"] then
+		bioMult *= 1.25
+		techMult *= 1.25
+	end
+	if state.UnlockedStations["Station_Pulsar"] then
+		engMult *= 1.35
+		speedMult *= 1.15
+	end
+	if state.UnlockedStations["Station_Quantum"] then
+		minMult *= 1.50
+		bioMult *= 1.50
+		engMult *= 1.50
+		techMult *= 1.50
+	end
+	if state.UnlockedStations["Station_Rift"] then
+		minMult *= 1.75
+		bioMult *= 1.75
+		engMult *= 1.75
+		techMult *= 1.75
+		gemMult *= 1.25
+	end
+	if state.UnlockedStations["Station_Omega"] then
+		minMult *= 2.50
+		bioMult *= 2.50
+		engMult *= 2.50
+		techMult *= 2.50
+		gemMult *= 1.50
+	end
+
+	-- Layer 5: Equipped Orbital Companions / Drones
+	local extraSlots = state.ShardUpgrades.ExtraDroneSlots or 0
+	state.MaxEquippedDrones = 3 + extraSlots
+	local companionYieldMult = 1.0
+	local companionGemMult = 1.0
+	local companionSpeedAdd = 0.0
+	for _, drone in ipairs(state.Companions) do
+		if drone.Equipped then
+			local cDef = PlanetConfig.Companions[drone.Id]
+			if cDef then
+				local goldFactor = drone.IsGolden and 1.85 or 1.0
+				companionYieldMult += (cDef.YieldMult - 1.0) * goldFactor
+				companionGemMult += (cDef.GemMult - 1.0) * goldFactor
+				companionSpeedAdd += (cDef.SpeedBonus or 0) * goldFactor
+			end
+		end
+	end
+	gemMult *= companionGemMult
+	speedMult *= (1 + companionSpeedAdd)
+
+	-- Layer 6: Permanent Cosmic Shard Upgrades & Planetary Ascensions
+	local ascensionMult = math.pow(2.5, state.Ascensions)
+	local permGemsLvl = state.ShardUpgrades.PermGems or 0
+	local permSpeedLvl = state.ShardUpgrades.PermSpeed or 0
+	local permDrillLvl = state.ShardUpgrades.PermDrill or 0
+	gemMult *= (1 + permGemsLvl * 0.50) * math.pow(1.35, state.Ascensions)
+	speedMult *= (1 + permSpeedLvl * 0.25)
+
+	-- Layer 7: Active Timed Boosters
+	local boosterYieldMult = ((state.ActiveBoosters.YieldBoost or 0) > 0) and 2.0 or 1.0
+	local boosterGemMult = ((state.ActiveBoosters.GemBoost or 0) > 0) and 2.0 or 1.0
+	local boosterSpeedMult = ((state.ActiveBoosters.SpeedBoost or 0) > 0) and 1.6 or 1.0
+	local boosterDrillAdd = ((state.ActiveBoosters.DrillBoost or 0) > 0) and 8 or 0
+
+	gemMult *= boosterGemMult
+	speedMult *= boosterSpeedMult
+
+	-- Effective Core Drill Power (determines which Deep Space Zones you can harvest!)
+	local drillPower = coreLvl + titanTier + (permDrillLvl * 3) + boosterDrillAdd
+	state.Rates.DrillPower = drillPower
+
+	-- Check Open-Space Hub & Deep-Space Station Sanctuary Proximity
 	local pos = state.PlanetPosition
 	local distFromOrigin = pos.Magnitude
 	local inSanctuary = (distFromOrigin <= 560)
-	local hubBonus = inSanctuary and 1.5 or 1.0
+	local hubBonus = inSanctuary and 1.25 or 1.0
 	local districtName = ""
 
 	if distFromOrigin <= 560 then
@@ -259,58 +406,64 @@ local function recalculateRates(player: Player, state: PlayerState)
 			return m ~= nil and (pos - m.Position).Magnitude <= (m.InteractRadius + 25)
 		end
 		if near("DysonReactor") then
-			districtName = "⚡ Dyson Star-Reactor (+50% Energy)"
-			engMult *= 1.50
+			districtName = "⚡ Dyson Star-Reactor (+35% Energy)"
+			engMult *= 1.35
 		elseif near("AstralObservatory") then
-			districtName = "🔭 Astral Observatory (+50% Tech)"
-			techMult *= 1.50
+			districtName = "🔭 Astral Observatory (+35% Tech)"
+			techMult *= 1.35
 		elseif near("TitanRefinery") then
-			districtName = "⚒️ Titan Refinery (+50% Minerals)"
-			minMult *= 1.50
+			districtName = "⚒️ Titan Refinery (+35% Minerals)"
+			minMult *= 1.35
 		elseif near("GaiaBioVat") then
-			districtName = "🌿 Gaia Bio-Vat (+50% Biomass)"
-			bioMult *= 1.50
+			districtName = "🌿 Gaia Bio-Vat (+35% Biomass)"
+			bioMult *= 1.35
 		elseif near("WarpGate") then
-			districtName = "🌀 Warp Gate (+40% Energy & Speed)"
-			engMult *= 1.40
-			speedMult *= 1.25
+			districtName = "🌀 Warp Gate (+25% Energy & Speed)"
+			engMult *= 1.25
+			speedMult *= 1.20
 		end
-	end
-
-	-- Determine Current Deep-Space Sector Name
-	local sectorName = "Galactic Nexus Hub"
-	if inSanctuary then
-		sectorName = "Galactic Nexus Hub"
 	else
-		local bestDist = math.huge
-		for _, sec in ipairs(PlanetConfig.WarpSectors) do
-			if sec.Id ~= "Hub" then
-				local d = (pos - sec.Position).Magnitude
-				if d < bestDist then
-					bestDist = d
-					sectorName = sec.Name
+		for _, st in ipairs(PlanetConfig.SpaceStations) do
+			if st.Id ~= "Hub" and (pos - st.Position).Magnitude <= st.DockRadius then
+				if state.UnlockedStations[st.Id] then
+					inSanctuary = true
+					hubBonus = 1.40
+					districtName = string.format("🛰️ Docked at %s (+40%% Sanctuary Yield)", st.ShortName)
+				else
+					districtName = string.format("🔒 Near %s (Press [E] to Unlock Gate: %s💎)", st.ShortName, PlanetConfig.FormatNumber(st.GemCost))
 				end
+				break
 			end
 		end
-		if bestDist > 1500 then
-			sectorName = "Uncharted Deep Space"
-		end
 	end
-	local distMultNow = math.max(1.0, math.pow(distFromOrigin / 400, 1.35))
-	sectorName = string.format("%s  •  %sx Loot", sectorName, PlanetConfig.FormatNumber(distMultNow))
 
-	-- Calculate Exponential Planet Value Score & Planetary Rank
+	-- Determine Current Distance Zone
+	local curZone = PlanetConfig.GetZoneForDistance(distFromOrigin)
+	state.Rates.CurrentZoneTier = curZone.Tier
+	state.Rates.CurrentZoneReqDrill = curZone.ReqDrill
+	state.Rates.CurrentSectorName = string.format(
+		"%s  •  %sx Node Loot  •  Req Drill Lv.%d",
+		curZone.Name,
+		PlanetConfig.FormatNumber(curZone.YieldMultiplier),
+		curZone.ReqDrill
+	)
+
+	-- Calculate Controlled Planet Value Score & Planetary Rank (NO runaway feedback loop!)
 	local totalUpgradeLevels = coreLvl + bioLvl + magLvl + orbLvl + metroLvl + harvLvl
 	local totalMachineTiers = dysonTier + titanTier + gaiaTier + astralTier
-	local expFactor = math.pow(1.22, totalUpgradeLevels * 0.35 + totalMachineTiers * 0.65)
+	local unlockedStations = getUnlockedStationCount(state)
+	local milestoneFactor = math.pow(1.13, totalUpgradeLevels * 0.22 + totalMachineTiers * 0.48 + unlockedStations * 2.2)
+
 	local rawValue = (
 		100
-		+ totalUpgradeLevels * 180
-		+ totalMachineTiers * 450
-		+ (unlockedCount - 1) * 500
-		+ state.Population * 4.5
-		+ state.OrbsHarvested * 65
-	) * expFactor * valMult * ascensionMult
+		+ totalUpgradeLevels * 95
+		+ totalMachineTiers * 280
+		+ (unlockedCount - 1) * 420
+		+ unlockedStations * 1800
+		+ state.OrbsHarvested * 18
+		+ state.DronesHatched * 150
+	) * milestoneFactor * valMult * companionYieldMult * ascensionMult
+
 	state.PlanetValueScore = math.floor(rawValue)
 
 	local currentRankIdx = 1
@@ -325,36 +478,52 @@ local function recalculateRates(player: Player, state: PlayerState)
 
 	if state.HasCompletedSetup and currentRankIdx > state.HighestRankReached then
 		state.HighestRankReached = currentRankIdx
+		state.Gems += currentRankIdx * 25
 		NotificationEvent:FireClient(
 			player,
-			string.format("🏆 PLANETARY RANK UP! Rank %d: %s (%s)!", rankDef.Rank, rankDef.Title, rankDef.RewardDesc),
+			string.format(
+				"🏆 PLANETARY RANK UP! Rank %d: %s (%s & +%d💎 Gems)!",
+				rankDef.Rank,
+				rankDef.Title,
+				rankDef.RewardDesc,
+				currentRankIdx * 25
+			),
 			rankDef.BadgeColor
 		)
 	end
 
-	local totalMult = masteryBonus * allMachineBonus * hubBonus * rankYieldMult * ascensionMult
-	state.Rates.Minerals = math.floor(6.0 * popFactor * minMult * totalMult * 10) / 10
-	state.Rates.Biomass = math.floor(6.0 * popFactor * bioMult * totalMult * 10) / 10
-	state.Rates.Energy = math.floor(5.5 * popFactor * engMult * totalMult * 10) / 10
-	state.Rates.Tech = math.floor(4.5 * popFactor * techMult * totalMult * 10) / 10
+	local totalMult = masteryBonus
+		* allMachineBonus
+		* hubBonus
+		* rankYieldMult
+		* companionYieldMult
+		* ascensionMult
+		* boosterYieldMult
+
+	state.Rates.GlobalYieldMult = totalMult
+	state.Rates.CompanionMult = companionYieldMult
+	state.Rates.GemMultiplier = gemMult
+	state.Rates.Minerals = math.floor(2.4 * popFactor * minMult * totalMult * 10) / 10
+	state.Rates.Biomass = math.floor(2.4 * popFactor * bioMult * totalMult * 10) / 10
+	state.Rates.Energy = math.floor(2.2 * popFactor * engMult * totalMult * 10) / 10
+	state.Rates.Tech = math.floor(1.8 * popFactor * techMult * totalMult * 10) / 10
 	state.Rates.FlightSpeed = math.floor(135 * speedMult)
 	state.Rates.InHubSanctuary = inSanctuary
 	state.Rates.ActiveDistrictName = districtName
-	state.Rates.CurrentSectorName = sectorName
 
 	local ls = player:FindFirstChild("leaderstats")
 	if ls then
 		local valStat = ls:FindFirstChild("PlanetValue") :: StringValue?
 		local rankStat = ls:FindFirstChild("Rank") :: StringValue?
-		local popStat = ls:FindFirstChild("Population") :: StringValue?
+		local gemStat = ls:FindFirstChild("Gems") :: StringValue?
 		if valStat then
 			valStat.Value = PlanetConfig.FormatNumber(state.PlanetValueScore)
 		end
 		if rankStat then
 			rankStat.Value = rankDef.Title
 		end
-		if popStat then
-			popStat.Value = PlanetConfig.FormatNumber(state.Population) .. "M"
+		if gemStat then
+			gemStat.Value = PlanetConfig.FormatNumber(state.Gems)
 		end
 	end
 end
@@ -370,12 +539,23 @@ local function syncStateToClient(player: Player)
 	StateSyncEvent:FireClient(player, {
 		HasCompletedSetup = state.HasCompletedSetup,
 		Resources = state.Resources,
+		Gems = state.Gems,
+		CosmicShards = state.CosmicShards,
 		Population = state.Population,
 		PlanetValueScore = state.PlanetValueScore,
 		RankIndex = state.RankIndex,
 		Ascensions = state.Ascensions,
 		MissionIndex = state.MissionIndex,
 		OrbsHarvested = state.OrbsHarvested,
+		DronesHatched = state.DronesHatched,
+		PlaytimeSeconds = state.PlaytimeSeconds,
+		ClaimedPlaytimeGifts = state.ClaimedPlaytimeGifts,
+		RedeemedCodes = state.RedeemedCodes,
+		UnlockedStations = state.UnlockedStations,
+		ActiveBoosters = state.ActiveBoosters,
+		ShardUpgrades = state.ShardUpgrades,
+		Companions = state.Companions,
+		MaxEquippedDrones = state.MaxEquippedDrones,
 		Look = state.Look,
 		SpeciesId = state.SpeciesId,
 		UnlockedEvolutions = state.UnlockedEvolutions,
@@ -392,7 +572,7 @@ local function getPlanetScaleFactor(state: PlayerState): number
 	local titanTier = state.MachineTiers.TitanRefinery or 0
 	local rankDef = PlanetConfig.PlanetaryRanks[state.RankIndex] or PlanetConfig.PlanetaryRanks[1]
 	local rankBonus = rankDef.SizeBonus or 0
-	return 1.0 + math.min(totalUpgradeLevels * 0.018 + titanTier * 0.03 + rankBonus, 1.85)
+	return 1.0 + math.min(totalUpgradeLevels * 0.012 + titanTier * 0.02 + rankBonus, 1.85)
 end
 
 local function rebuildPlayerPlanet(player: Player)
@@ -422,7 +602,6 @@ local function rebuildPlayerPlanet(player: Player)
 	syncStateToClient(player)
 end
 
--- Keep the hidden Avatar Character right at the player's PlanetPosition so Roblox StreamingFocus never unloads chunks
 local function syncHiddenCharacterToPlanet(player: Player, pos: Vector3)
 	local char = player.Character
 	if not char then
@@ -485,10 +664,10 @@ local function onPlayerAdded(player: Player)
 	rankStat.Value = "Proto-Planetoid"
 	rankStat.Parent = ls
 
-	local popStat = Instance.new("StringValue")
-	popStat.Name = "Population"
-	popStat.Value = "10M"
-	popStat.Parent = ls
+	local gemStat = Instance.new("StringValue")
+	gemStat.Name = "Gems"
+	gemStat.Value = "50"
+	gemStat.Parent = ls
 
 	local initialLook = table.clone(PlanetConfig.DefaultPlanetLook)
 	initialLook.PlanetName = player.DisplayName .. " Prime"
@@ -496,11 +675,13 @@ local function onPlayerAdded(player: Player)
 	playerStates[player] = {
 		HasCompletedSetup = false,
 		Resources = {
-			Minerals = 180,
-			Biomass = 180,
-			Energy = 160,
-			Tech = 120,
+			Minerals = 110,
+			Biomass = 110,
+			Energy = 95,
+			Tech = 75,
 		},
+		Gems = 50,
+		CosmicShards = 0,
 		Population = 10.0,
 		PlanetValueScore = 100,
 		RankIndex = 1,
@@ -508,6 +689,27 @@ local function onPlayerAdded(player: Player)
 		Ascensions = 0,
 		MissionIndex = 1,
 		OrbsHarvested = 0,
+		DronesHatched = 0,
+		PlaytimeSeconds = 0,
+		ClaimedPlaytimeGifts = {},
+		RedeemedCodes = {},
+		UnlockedStations = {
+			Hub = true,
+		},
+		ActiveBoosters = {
+			YieldBoost = 0,
+			GemBoost = 0,
+			SpeedBoost = 0,
+			DrillBoost = 0,
+		},
+		ShardUpgrades = {
+			PermDrill = 0,
+			PermGems = 0,
+			ExtraDroneSlots = 0,
+			PermSpeed = 0,
+		},
+		Companions = {},
+		MaxEquippedDrones = 3,
 		Look = initialLook,
 		SpeciesId = "Terranauts",
 		UnlockedEvolutions = {
@@ -529,17 +731,24 @@ local function onPlayerAdded(player: Player)
 			AstralObservatory = 0,
 		},
 		Rates = {
-			Minerals = 6,
-			Biomass = 6,
-			Energy = 5.5,
-			Tech = 4.5,
+			Minerals = 2.5,
+			Biomass = 2.5,
+			Energy = 2.2,
+			Tech = 1.8,
 			FlightSpeed = 135,
+			DrillPower = 0,
+			GlobalYieldMult = 1.0,
+			GemMultiplier = 1.0,
+			CompanionMult = 1.0,
 			InHubSanctuary = true,
 			ActiveDistrictName = "",
-			CurrentSectorName = "Galactic Nexus Hub (1x Node Rewards)",
+			CurrentSectorName = "Zone 1: Inner Sanctuary Orbit",
+			CurrentZoneTier = 1,
+			CurrentZoneReqDrill = 0,
 		},
 		PlanetPosition = HUB_SPAWN_POS,
 		PlanetModel = nil,
+		LastDrillWarnTime = 0,
 	}
 
 	rebuildPlayerPlanet(player)
@@ -571,7 +780,6 @@ FlightSyncEvent.OnServerEvent:Connect(function(player: Player, newPos: Vector3, 
 		return
 	end
 	if typeof(newPos) == "Vector3" and newPos.X == newPos.X then
-		-- Open, virtually infinite space flight (up to ±250,000 studs!)
 		local clampedPos = Vector3.new(
 			math.clamp(newPos.X, -250000, 250000),
 			math.clamp(newPos.Y, -25000, 25000),
@@ -651,7 +859,7 @@ UpdateCustomizationEvent.OnServerEvent:Connect(function(player: Player, newLook:
 	rebuildPlayerPlanet(player)
 end)
 
--- B. Species Selection Handler (During Initial 2D Creator Screen)
+-- B. Species Selection Handler
 SelectSpeciesEvent.OnServerEvent:Connect(function(player: Player, speciesId: string)
 	local state = playerStates[player]
 	if not state or type(speciesId) ~= "string" or state.HasCompletedSetup then
@@ -684,7 +892,7 @@ FinalizeSetupEvent.OnServerEvent:Connect(function(player: Player, finalPlanetNam
 	local pt = PlanetConfig.PlanetTypes[state.Look.Biome] or PlanetConfig.PlanetTypes.Terrestrial
 	NotificationEvent:FireClient(
 		player,
-		string.format("🪐 %s (%s) Spawned in Galactic Nexus Hub! Fly with WASD & use Hub Machines!", state.Look.PlanetName, pt.Name),
+		string.format("🪐 %s (%s) Spawned in Galactic Nexus Hub! Upgrade your Core Drill & explore Deep-Space Zones!", state.Look.PlanetName, pt.Name),
 		Color3.fromRGB(85, 255, 160)
 	)
 end)
@@ -825,7 +1033,7 @@ UpgradePlanetValueEvent.OnServerEvent:Connect(function(player: Player, upgradeId
 	)
 end)
 
--- F. Hub Machine Overclock / Tier Upgrade Handler (Supports 1x or Buy Max!)
+-- F. Hub Machine Overclock / Tier Upgrade Handler
 UpgradeMachineEvent.OnServerEvent:Connect(function(player: Player, machineId: string, buyMax: boolean?)
 	local state = playerStates[player]
 	if not state or not state.HasCompletedSetup or type(machineId) ~= "string" then
@@ -871,7 +1079,7 @@ UpgradeMachineEvent.OnServerEvent:Connect(function(player: Player, machineId: st
 			boughtTiers += 1
 
 			if machineId == "GaiaBioVat" then
-				state.Population = math.floor((state.Population * 1.60 + 15) * 10) / 10
+				state.Population = math.floor((state.Population * 1.25 + 12) * 10) / 10
 			end
 		else
 			break
@@ -900,35 +1108,105 @@ UpgradeMachineEvent.OnServerEvent:Connect(function(player: Player, machineId: st
 	)
 end)
 
--- G. Starfarer Warp Gate Sector Teleport Handler
-WarpToSectorEvent.OnServerEvent:Connect(function(player: Player, sectorId: string)
+-- G1. Unlock a Deep-Space Outpost Station's Warp Gate (Costs 💎 Star Gems!)
+UnlockSpaceStationEvent.OnServerEvent:Connect(function(player: Player, stationId: string)
 	local state = playerStates[player]
-	if not state or not state.HasCompletedSetup or type(sectorId) ~= "string" then
+	if not state or not state.HasCompletedSetup or type(stationId) ~= "string" then
 		return
 	end
 
-	local targetSector = nil
-	for _, sec in ipairs(PlanetConfig.WarpSectors) do
-		if sec.Id == sectorId then
-			targetSector = sec
+	local stDef = nil
+	for _, st in ipairs(PlanetConfig.SpaceStations) do
+		if st.Id == stationId then
+			stDef = st
 			break
 		end
 	end
-	if not targetSector then
+	if not stDef then
 		return
 	end
 
-	local reqValue = targetSector.MinValueReq or 0
-	if state.PlanetValueScore < reqValue then
+	if state.UnlockedStations[stationId] then
+		NotificationEvent:FireClient(player, "Warp Gate is already unlocked!", Color3.fromRGB(110, 245, 165))
+		return
+	end
+
+	recalculateRates(player, state)
+	if state.Rates.DrillPower < (stDef.ReqDrill or 0) then
 		NotificationEvent:FireClient(
 			player,
-			string.format("🔒 Need %s Planet Value to warp to %s!", PlanetConfig.FormatNumber(reqValue), targetSector.Name),
+			string.format(
+				"🔒 Need Core Drill Power Lv.%d to unlock %s! (Current: Lv.%d)",
+				stDef.ReqDrill,
+				stDef.ShortName,
+				state.Rates.DrillPower
+			),
 			Color3.fromRGB(255, 95, 95)
 		)
 		return
 	end
 
-	state.PlanetPosition = targetSector.Position
+	local gemCost = stDef.GemCost or 0
+	if state.Gems < gemCost then
+		NotificationEvent:FireClient(
+			player,
+			string.format(
+				"💎 Need %s Star Gems to unlock %s Warp Gate! (Have: %s💎)",
+				PlanetConfig.FormatNumber(gemCost),
+				stDef.ShortName,
+				PlanetConfig.FormatNumber(state.Gems)
+			),
+			Color3.fromRGB(255, 95, 95)
+		)
+		return
+	end
+
+	state.Gems -= gemCost
+	state.UnlockedStations[stationId] = true
+	syncStateToClient(player)
+
+	NotificationEvent:FireClient(
+		player,
+		string.format("🛰️ WARP GATE UNLOCKED: %s! (%s)", stDef.Name, stDef.StationUnlockPerk),
+		stDef.Color
+	)
+end)
+
+-- G2. Teleport to an Unlocked Space Station Warp Gate
+WarpToSectorEvent.OnServerEvent:Connect(function(player: Player, stationId: string)
+	local state = playerStates[player]
+	if not state or not state.HasCompletedSetup or type(stationId) ~= "string" then
+		return
+	end
+
+	local targetStation = nil
+	for _, st in ipairs(PlanetConfig.SpaceStations) do
+		if st.Id == stationId then
+			targetStation = st
+			break
+		end
+	end
+	if not targetStation then
+		return
+	end
+
+	if not state.UnlockedStations[stationId] and not targetStation.UnlockedByDefault then
+		NotificationEvent:FireClient(
+			player,
+			string.format(
+				"🔒 Unlock %s Warp Gate first (%s 💎 Star Gems)!",
+				targetStation.ShortName,
+				PlanetConfig.FormatNumber(targetStation.GemCost)
+			),
+			Color3.fromRGB(255, 95, 95)
+		)
+		return
+	end
+
+	state.PlanetPosition = targetStation.Position + Vector3.new(0, 18, 85)
+	if stationId == "Hub" then
+		state.PlanetPosition = HUB_SPAWN_POS
+	end
 	syncHiddenCharacterToPlanet(player, state.PlanetPosition)
 	SpaceWorldBuilder.UpdateProceduralChunks({ state.PlanetPosition })
 	if state.PlanetModel then
@@ -938,18 +1216,374 @@ WarpToSectorEvent.OnServerEvent:Connect(function(player: Player, sectorId: strin
 
 	NotificationEvent:FireClient(
 		player,
-		string.format("🌀 WARPED TO %s!", string.upper(targetSector.Name)),
-		targetSector.Color
+		string.format("🌀 WARPED TO %s!", string.upper(targetStation.Name)),
+		targetStation.Color
 	)
 end)
 
--- H. Planetary Ascension / Rebirth Handler (Permanent 3^Ascensions Multiplier!)
+-- H1. Orbital Companion / Drone Pod Gacha Hatcher (Costs 💎 Star Gems!)
+HatchCompanionPodEvent.OnServerEvent:Connect(function(player: Player, podId: string, hatchThree: boolean?)
+	local state = playerStates[player]
+	if not state or not state.HasCompletedSetup or type(podId) ~= "string" then
+		return
+	end
+
+	local podDef = nil
+	for _, p in ipairs(PlanetConfig.CompanionPods) do
+		if p.Id == podId then
+			podDef = p
+			break
+		end
+	end
+	if not podDef then
+		return
+	end
+
+	local count = hatchThree and 3 or 1
+	local totalCost = podDef.GemCost * count
+	if state.Gems < totalCost then
+		NotificationEvent:FireClient(
+			player,
+			string.format("💎 Need %s Star Gems to hatch %dx %s!", PlanetConfig.FormatNumber(totalCost), count, podDef.Name),
+			Color3.fromRGB(255, 95, 95)
+		)
+		return
+	end
+
+	if #state.Companions + count > 45 then
+		NotificationEvent:FireClient(
+			player,
+			"Drone Hangar is full (45/45)! Craft Golden Drones or delete extras first!",
+			Color3.fromRGB(255, 175, 55)
+		)
+		return
+	end
+
+	state.Gems -= totalCost
+	local hatchedNames = {}
+
+	for _ = 1, count do
+		local totalWeight = 0
+		for _, entry in ipairs(podDef.Pool) do
+			totalWeight += entry.Weight
+		end
+		local roll = math.random(1, totalWeight)
+		local pickedId = podDef.Pool[1].Id
+		local acc = 0
+		for _, entry in ipairs(podDef.Pool) do
+			acc += entry.Weight
+			if roll <= acc then
+				pickedId = entry.Id
+				break
+			end
+		end
+
+		nextCompanionUid += 1
+		local uid = "Drone_" .. tostring(nextCompanionUid)
+		local autoEquip = (getEquippedCount(state) < state.MaxEquippedDrones)
+
+		table.insert(state.Companions, {
+			Uid = uid,
+			Id = pickedId,
+			IsGolden = false,
+			Equipped = autoEquip,
+		})
+		state.DronesHatched += 1
+
+		local cDef = PlanetConfig.Companions[pickedId]
+		if cDef then
+			table.insert(hatchedNames, string.format("%s %s [%s]", cDef.Icon, cDef.Name, cDef.Rarity))
+		end
+	end
+
+	syncStateToClient(player)
+	NotificationEvent:FireClient(
+		player,
+		string.format("🛸 HATCHED: %s!", table.concat(hatchedNames, ", ")),
+		podDef.Color
+	)
+end)
+
+-- H2. Companion Inventory Management (EquipBest, ToggleEquip, CraftGolden, Delete)
+CompanionActionEvent.OnServerEvent:Connect(function(player: Player, action: string, targetUid: string?)
+	local state = playerStates[player]
+	if not state or not state.HasCompletedSetup or type(action) ~= "string" then
+		return
+	end
+
+	if action == "EquipBest" then
+		for _, d in ipairs(state.Companions) do
+			d.Equipped = false
+		end
+		table.sort(state.Companions, function(a, b)
+			local ca = PlanetConfig.Companions[a.Id]
+			local cb = PlanetConfig.Companions[b.Id]
+			local scoreA = (ca and ca.YieldMult or 1) * (a.IsGolden and 1.85 or 1)
+			local scoreB = (cb and cb.YieldMult or 1) * (b.IsGolden and 1.85 or 1)
+			return scoreA > scoreB
+		end)
+		for i = 1, math.min(#state.Companions, state.MaxEquippedDrones) do
+			state.Companions[i].Equipped = true
+		end
+		syncStateToClient(player)
+		NotificationEvent:FireClient(player, "🛸 Equipped your strongest Orbital Drones!", Color3.fromRGB(85, 240, 165))
+	elseif action == "ToggleEquip" and type(targetUid) == "string" then
+		for _, d in ipairs(state.Companions) do
+			if d.Uid == targetUid then
+				if d.Equipped then
+					d.Equipped = false
+				else
+					if getEquippedCount(state) >= state.MaxEquippedDrones then
+						NotificationEvent:FireClient(
+							player,
+							string.format("Max Equipped Drones (%d) reached! Unequip one or upgrade Drone Fleet Slots!", state.MaxEquippedDrones),
+							Color3.fromRGB(255, 165, 65)
+						)
+						return
+					end
+					d.Equipped = true
+				end
+				break
+			end
+		end
+		syncStateToClient(player)
+	elseif action == "CraftGolden" then
+		-- Fuse any 3 non-golden identical drones into 1 Golden Drone (1.85x stronger!)
+		local countsById: { [string]: { number } } = {}
+		for idx, d in ipairs(state.Companions) do
+			if not d.IsGolden then
+				countsById[d.Id] = countsById[d.Id] or {}
+				table.insert(countsById[d.Id], idx)
+			end
+		end
+		local craftedCount = 0
+		for compId, indices in pairs(countsById) do
+			while #indices >= 3 do
+				local i3 = table.remove(indices) :: number
+				local i2 = table.remove(indices) :: number
+				local i1 = table.remove(indices) :: number
+				state.Companions[i1].IsGolden = true
+				state.Companions[i2].Uid = "REMOVE"
+				state.Companions[i3].Uid = "REMOVE"
+				craftedCount += 1
+				local _ = compId
+			end
+		end
+		if craftedCount > 0 then
+			local cleaned = {}
+			for _, d in ipairs(state.Companions) do
+				if d.Uid ~= "REMOVE" then
+					table.insert(cleaned, d)
+				end
+			end
+			state.Companions = cleaned
+			syncStateToClient(player)
+			NotificationEvent:FireClient(
+				player,
+				string.format("✨ CRAFTED %d GOLDEN ORBITAL DRONE(S) (1.85x Power)!", craftedCount),
+				Color3.fromRGB(255, 215, 55)
+			)
+		else
+			NotificationEvent:FireClient(
+				player,
+				"Need 3 identical standard Drones to fuse into a Golden Drone!",
+				Color3.fromRGB(255, 110, 95)
+			)
+		end
+	elseif action == "Delete" and type(targetUid) == "string" then
+		for idx, d in ipairs(state.Companions) do
+			if d.Uid == targetUid then
+				table.remove(state.Companions, idx)
+				break
+			end
+		end
+		syncStateToClient(player)
+	end
+end)
+
+-- H3. Buy Timed Booster with 💎 Star Gems
+BuyBoosterEvent.OnServerEvent:Connect(function(player: Player, boosterId: string)
+	local state = playerStates[player]
+	if not state or not state.HasCompletedSetup or type(boosterId) ~= "string" then
+		return
+	end
+
+	local bDef = nil
+	for _, b in ipairs(PlanetConfig.Boosters) do
+		if b.Id == boosterId then
+			bDef = b
+			break
+		end
+	end
+	if not bDef then
+		return
+	end
+
+	if state.Gems < bDef.GemCost then
+		NotificationEvent:FireClient(
+			player,
+			string.format("💎 Need %d Star Gems to activate %s!", bDef.GemCost, bDef.Name),
+			Color3.fromRGB(255, 95, 95)
+		)
+		return
+	end
+
+	state.Gems -= bDef.GemCost
+	state.ActiveBoosters[boosterId] = (state.ActiveBoosters[boosterId] or 0) + bDef.Duration
+	syncStateToClient(player)
+
+	NotificationEvent:FireClient(
+		player,
+		string.format("⚡ ACTIVATED %s (+15 Minutes)!", bDef.Name),
+		bDef.Color
+	)
+end)
+
+-- H4. Claim Timed Playtime Gift
+ClaimPlaytimeGiftEvent.OnServerEvent:Connect(function(player: Player, giftId: number)
+	local state = playerStates[player]
+	if not state or not state.HasCompletedSetup or type(giftId) ~= "number" then
+		return
+	end
+
+	local gDef = PlanetConfig.PlaytimeRewards[giftId]
+	if not gDef then
+		return
+	end
+	if state.ClaimedPlaytimeGifts[giftId] then
+		NotificationEvent:FireClient(player, "Gift already claimed!", Color3.fromRGB(255, 195, 75))
+		return
+	end
+	if state.PlaytimeSeconds < gDef.TimeReq then
+		NotificationEvent:FireClient(player, "Keep playing to unlock this Playtime Gift!", Color3.fromRGB(255, 110, 95))
+		return
+	end
+
+	state.ClaimedPlaytimeGifts[giftId] = true
+	if gDef.Gems then
+		state.Gems += gDef.Gems
+	end
+	if gDef.Resources then
+		local mult = math.max(1, state.Rates.GlobalYieldMult * 0.25)
+		local amt = math.floor(gDef.Resources * mult)
+		state.Resources.Minerals += amt
+		state.Resources.Biomass += amt
+		state.Resources.Energy += amt
+		state.Resources.Tech += amt
+	end
+	if gDef.BoosterId and gDef.BoosterSecs then
+		state.ActiveBoosters[gDef.BoosterId] = (state.ActiveBoosters[gDef.BoosterId] or 0) + gDef.BoosterSecs
+	end
+	if gDef.AllBoostSecs then
+		for _, b in ipairs(PlanetConfig.Boosters) do
+			state.ActiveBoosters[b.Id] = (state.ActiveBoosters[b.Id] or 0) + gDef.AllBoostSecs
+		end
+	end
+
+	syncStateToClient(player)
+	NotificationEvent:FireClient(
+		player,
+		string.format("🎁 CLAIMED %s: %s!", gDef.Label, gDef.RewardText),
+		Color3.fromRGB(105, 255, 155)
+	)
+end)
+
+-- H5. Redeem Simulator Promo Code
+RedeemPromoCodeEvent.OnServerEvent:Connect(function(player: Player, rawCode: string)
+	local state = playerStates[player]
+	if not state or not state.HasCompletedSetup or type(rawCode) ~= "string" then
+		return
+	end
+
+	local code = string.upper(string.gsub(rawCode, "%s+", ""))
+	local cDef = (PlanetConfig.PromoCodes :: any)[code]
+	if not cDef then
+		NotificationEvent:FireClient(
+			player,
+			"❌ Invalid Code! Try: COSMIC2026, STARFARER, GALAXY, or GEMS500",
+			Color3.fromRGB(255, 95, 95)
+		)
+		return
+	end
+	if state.RedeemedCodes[code] then
+		NotificationEvent:FireClient(player, "You already redeemed code " .. code .. "!", Color3.fromRGB(255, 195, 75))
+		return
+	end
+
+	state.RedeemedCodes[code] = true
+	if cDef.Gems then
+		state.Gems += cDef.Gems
+	end
+	if cDef.Resources then
+		state.Resources.Minerals += cDef.Resources
+		state.Resources.Biomass += cDef.Resources
+		state.Resources.Energy += cDef.Resources
+		state.Resources.Tech += cDef.Resources
+	end
+	if cDef.BoosterId and cDef.BoosterSecs then
+		state.ActiveBoosters[cDef.BoosterId] = (state.ActiveBoosters[cDef.BoosterId] or 0) + cDef.BoosterSecs
+	end
+
+	syncStateToClient(player)
+	NotificationEvent:FireClient(
+		player,
+		string.format("🎟️ CODE REDEEMED (%s): %s!", code, cDef.Desc),
+		Color3.fromRGB(95, 245, 255)
+	)
+end)
+
+-- H6. Buy Permanent Cosmic Shard Upgrade
+BuyShardUpgradeEvent.OnServerEvent:Connect(function(player: Player, shardUpgId: string)
+	local state = playerStates[player]
+	if not state or not state.HasCompletedSetup or type(shardUpgId) ~= "string" then
+		return
+	end
+
+	local sDef = nil
+	for _, s in ipairs(PlanetConfig.ShardUpgrades) do
+		if s.Id == shardUpgId then
+			sDef = s
+			break
+		end
+	end
+	if not sDef then
+		return
+	end
+
+	local lvl = state.ShardUpgrades[shardUpgId] or 0
+	if lvl >= sDef.MaxLevel then
+		NotificationEvent:FireClient(player, "Shard Mastery already at Max Level!", Color3.fromRGB(255, 215, 80))
+		return
+	end
+
+	local cost = math.max(1, math.floor(sDef.BaseShardCost * math.pow(sDef.CostScale, lvl)))
+	if state.CosmicShards < cost then
+		NotificationEvent:FireClient(
+			player,
+			string.format("🪐 Need %d Cosmic Shards! (Ascend your planet to earn Shards!)", cost),
+			Color3.fromRGB(255, 95, 95)
+		)
+		return
+	end
+
+	state.CosmicShards -= cost
+	state.ShardUpgrades[shardUpgId] = lvl + 1
+	syncStateToClient(player)
+
+	NotificationEvent:FireClient(
+		player,
+		string.format("🪐 SHARD MASTERY UPGRADED: %s (Lv.%d)!", sDef.Name, lvl + 1),
+		Color3.fromRGB(215, 115, 255)
+	)
+end)
+
+-- I. Planetary Ascension / Rebirth Handler (Grants 🪐 Cosmic Shards + Permanent 2.5^Ascensions Multiplier!)
 AscendPlanetEvent.OnServerEvent:Connect(function(player: Player)
 	local state = playerStates[player]
 	if not state or not state.HasCompletedSetup then
 		return
 	end
-	local reqValue = math.floor(15000 * math.pow(4.5, state.Ascensions))
+	local reqValue = math.floor(32000 * math.pow(4.2, state.Ascensions))
 	if state.PlanetValueScore < reqValue then
 		NotificationEvent:FireClient(
 			player,
@@ -959,10 +1593,14 @@ AscendPlanetEvent.OnServerEvent:Connect(function(player: Player)
 		return
 	end
 
+	local shardsEarned = math.max(1, 1 + math.floor(state.Ascensions * 0.8) + math.floor(state.RankIndex / 4))
 	state.Ascensions += 1
-	local newMult = math.pow(3, state.Ascensions)
-	state.Resources = { Minerals = 500, Biomass = 500, Energy = 450, Tech = 350 }
-	state.Population = 20.0 * math.pow(2.0, state.Ascensions)
+	state.CosmicShards += shardsEarned
+	local newMult = math.pow(2.5, state.Ascensions)
+
+	-- Keep Gems, CosmicShards, Companions, UnlockedStations, and ShardUpgrades!
+	state.Resources = { Minerals = 200, Biomass = 200, Energy = 180, Tech = 150 }
+	state.Population = 15.0 * math.pow(1.5, state.Ascensions)
 	state.PlanetUpgrades = {
 		CoreDensity = 0,
 		BiosphereFertility = 0,
@@ -985,12 +1623,17 @@ AscendPlanetEvent.OnServerEvent:Connect(function(player: Player)
 
 	NotificationEvent:FireClient(
 		player,
-		string.format("🌟 PLANETARY ASCENSION #%d COMPLETE! Permanent %sx All Yields & Planet Value!", state.Ascensions, PlanetConfig.FormatNumber(newMult)),
+		string.format(
+			"🌟 ASCENSION #%d COMPLETE! +%d 🪐 Cosmic Shards & Permanent %sx All Yields!",
+			state.Ascensions,
+			shardsEarned,
+			PlanetConfig.FormatNumber(newMult)
+		),
 		Color3.fromRGB(255, 215, 65)
 	)
 end)
 
--- I. Instant Warp Back to Main Galactic Hub
+-- J. Instant Warp Back to Main Galactic Hub
 TeleportToHubEvent.OnServerEvent:Connect(function(player: Player)
 	local state = playerStates[player]
 	if not state then
@@ -1034,12 +1677,13 @@ task.spawn(function()
 			SpaceWorldBuilder.UpdateProceduralChunks(activePositions)
 		end
 
+		local now = os.clock()
 		for player, state in pairs(playerStates) do
 			if state.HasCompletedSetup then
 				local pPos = state.PlanetPosition
 				local harvLvl = state.PlanetUpgrades.AnomalyHarvester or 0
-				local harvestRadius = 56 * (1 + harvLvl * 0.14)
-				local harvMult = math.pow(1.48, harvLvl) * math.pow(3.0, state.Ascensions)
+				local harvestRadius = 54 * (1 + harvLvl * 0.10)
+				local harvBonus = 1 + harvLvl * 0.28
 
 				for _, chunkModel in ipairs(nodesFolder:GetChildren()) do
 					if chunkModel:IsA("Model") then
@@ -1048,65 +1692,120 @@ task.spawn(function()
 								local root = collectible.PrimaryPart
 								if root and root:GetAttribute("Available") == true then
 									if (root.Position - pPos).Magnitude <= harvestRadius then
-										root:SetAttribute("Available", false)
-										setModelVisibility(collectible, false)
+										local reqDrill = (root:GetAttribute("ReqDrill") :: number) or 0
+										local nodeTitle = (root:GetAttribute("NodeTitle") :: string) or "Cosmic Material"
+										local zoneTier = (root:GetAttribute("ZoneTier") :: number) or 1
 
-										local resType = root:GetAttribute("ResourceType") :: string
-										local nodeTitle = (root:GetAttribute("NodeTitle") :: string) or "Cosmic Object"
-										local distMult = (root:GetAttribute("DistanceMultiplier") :: number) or 1.0
-
-										state.OrbsHarvested += 1
-
-										if resType == "PopulationPod" then
-											local popGain = math.max(5.0, math.floor(state.Population * 0.28 * 10) / 10)
-											local techGain = math.floor((90 + state.Rates.Tech * 6.5) * distMult * harvMult)
-											state.Population = math.floor((state.Population + popGain) * 10) / 10
-											state.Resources.Tech += techGain
-											NotificationEvent:FireClient(
-												player,
-												string.format("🛸 RESCUED %s! +%sM Citizens & +%s Tech!", nodeTitle, PlanetConfig.FormatNumber(popGain), PlanetConfig.FormatNumber(techGain)),
-												Color3.fromRGB(80, 225, 255)
-											)
-										elseif resType == "SupernovaChest" then
-											local minBurst = math.floor((250 + state.Rates.Minerals * 14) * distMult * harvMult)
-											local bioBurst = math.floor((250 + state.Rates.Biomass * 14) * distMult * harvMult)
-											local engBurst = math.floor((250 + state.Rates.Energy * 14) * distMult * harvMult)
-											local techBurst = math.floor((220 + state.Rates.Tech * 14) * distMult * harvMult)
-											state.Resources.Minerals += minBurst
-											state.Resources.Biomass += bioBurst
-											state.Resources.Energy += engBurst
-											state.Resources.Tech += techBurst
-											NotificationEvent:FireClient(
-												player,
-												string.format(
-													"🌟 SUPERNOVA JACKPOT (%s)! +%s Minerals, +%s Biomass, +%s Energy, +%s Tech!",
-													nodeTitle,
-													PlanetConfig.FormatNumber(minBurst),
-													PlanetConfig.FormatNumber(bioBurst),
-													PlanetConfig.FormatNumber(engBurst),
-													PlanetConfig.FormatNumber(techBurst)
-												),
-												Color3.fromRGB(255, 215, 55)
-											)
-										elseif resType and (state.Resources :: any)[resType] ~= nil then
-											local rateForRes = (state.Rates :: any)[resType] or 10
-											local bonusAmount = math.floor((75 + rateForRes * 5.5) * distMult * harvMult)
-											;(state.Resources :: any)[resType] += bonusAmount
-											NotificationEvent:FireClient(
-												player,
-												string.format("★ +%s %s (%s)!", PlanetConfig.FormatNumber(bonusAmount), resType, nodeTitle),
-												Color3.fromRGB(110, 245, 255)
-											)
-										end
-
-										syncStateToClient(player)
-
-										task.delay(20, function()
-											if collectible and collectible.Parent and root then
-												root:SetAttribute("Available", true)
-												setModelVisibility(collectible, true)
+										-- Require sufficient Core Drill Power to crack higher-zone materials!
+										if state.Rates.DrillPower < reqDrill then
+											if (now - state.LastDrillWarnTime) >= 2.5 then
+												state.LastDrillWarnTime = now
+												NotificationEvent:FireClient(
+													player,
+													string.format(
+														"🔒 Core Drill Too Weak for Tier %d %s! Requires Drill Power Lv.%d (Yours: Lv.%d)",
+														zoneTier,
+														nodeTitle,
+														reqDrill,
+														state.Rates.DrillPower
+													),
+													Color3.fromRGB(255, 95, 95)
+												)
 											end
-										end)
+										else
+											root:SetAttribute("Available", false)
+											setModelVisibility(collectible, false)
+
+											local resType = root:GetAttribute("ResourceType") :: string
+											local baseNodeVal = (root:GetAttribute("BaseNodeValue") :: number) or 18
+											local gemMin = (root:GetAttribute("GemMin") :: number) or 1
+											local gemMax = (root:GetAttribute("GemMax") :: number) or 3
+
+											state.OrbsHarvested += 1
+
+											if resType == "StarGems" then
+												local rawGems = math.random(gemMin, gemMax) * 3
+												local gemGain = math.max(1, math.floor(rawGems * state.Rates.GemMultiplier))
+												state.Gems += gemGain
+												NotificationEvent:FireClient(
+													player,
+													string.format("💎 +%s Star Gems (%s - Zone %d)!", PlanetConfig.FormatNumber(gemGain), nodeTitle, zoneTier),
+													Color3.fromRGB(95, 235, 255)
+												)
+											elseif resType == "PopulationPod" then
+												local popGain = math.max(2.0, math.floor((3 + zoneTier * 4 + state.Population * 0.12) * 10) / 10)
+												local techGain = math.floor((baseNodeVal * state.Rates.GlobalYieldMult + state.Rates.Tech * 2.5) * harvBonus)
+												local gemGain = math.max(1, math.floor(math.random(gemMin, gemMax) * state.Rates.GemMultiplier))
+												state.Population = math.floor((state.Population + popGain) * 10) / 10
+												state.Resources.Tech += techGain
+												state.Gems += gemGain
+												NotificationEvent:FireClient(
+													player,
+													string.format(
+														"🛸 RESCUED %s! +%sM Citizens, +%s🔬 Tech & +%s💎 Gems!",
+														nodeTitle,
+														PlanetConfig.FormatNumber(popGain),
+														PlanetConfig.FormatNumber(techGain),
+														PlanetConfig.FormatNumber(gemGain)
+													),
+													Color3.fromRGB(80, 225, 255)
+												)
+											elseif resType == "SupernovaChest" then
+												local minBurst = math.floor((baseNodeVal * 2.8 * state.Rates.GlobalYieldMult + state.Rates.Minerals * 5) * harvBonus)
+												local bioBurst = math.floor((baseNodeVal * 2.8 * state.Rates.GlobalYieldMult + state.Rates.Biomass * 5) * harvBonus)
+												local engBurst = math.floor((baseNodeVal * 2.8 * state.Rates.GlobalYieldMult + state.Rates.Energy * 5) * harvBonus)
+												local techBurst = math.floor((baseNodeVal * 2.5 * state.Rates.GlobalYieldMult + state.Rates.Tech * 5) * harvBonus)
+												local gemBurst = math.max(3, math.floor(math.random(gemMin, gemMax) * 4 * state.Rates.GemMultiplier))
+												state.Resources.Minerals += minBurst
+												state.Resources.Biomass += bioBurst
+												state.Resources.Energy += engBurst
+												state.Resources.Tech += techBurst
+												state.Gems += gemBurst
+												NotificationEvent:FireClient(
+													player,
+													string.format(
+														"🌟 SUPERNOVA VAULT (%s)! +%s💎 Gems & +%s All Resources!",
+														nodeTitle,
+														PlanetConfig.FormatNumber(gemBurst),
+														PlanetConfig.FormatNumber(minBurst)
+													),
+													Color3.fromRGB(255, 215, 55)
+												)
+											elseif resType and (state.Resources :: any)[resType] ~= nil then
+												local rateForRes = (state.Rates :: any)[resType] or 2.5
+												local bonusAmount = math.floor((baseNodeVal * state.Rates.GlobalYieldMult + rateForRes * 2.0) * harvBonus)
+												;(state.Resources :: any)[resType] += bonusAmount
+
+												local extraGemText = ""
+												if math.random(1, 100) <= 45 then
+													local gDrop = math.max(1, math.floor(math.random(gemMin, gemMax) * state.Rates.GemMultiplier))
+													state.Gems += gDrop
+													extraGemText = string.format(" & +%s💎", PlanetConfig.FormatNumber(gDrop))
+												end
+
+												NotificationEvent:FireClient(
+													player,
+													string.format(
+														"★ +%s %s%s (%s - T%d)!",
+														PlanetConfig.FormatNumber(bonusAmount),
+														resType,
+														extraGemText,
+														nodeTitle,
+														zoneTier
+													),
+													Color3.fromRGB(110, 245, 255)
+												)
+											end
+
+											syncStateToClient(player)
+
+											task.delay(22, function()
+												if collectible and collectible.Parent and root then
+													root:SetAttribute("Available", true)
+													setModelVisibility(collectible, true)
+												end
+											end)
+										end
 									end
 								end
 							end
@@ -1118,11 +1817,20 @@ task.spawn(function()
 	end
 end)
 
--- 7. Continuous Economy Tick Loop (Every 1.0 Second)
+-- 7. Continuous Economy, Playtime & Booster Tick Loop (Every 1.0 Second)
 task.spawn(function()
 	while true do
 		task.wait(1.0)
 		for player, state in pairs(playerStates) do
+			if state.HasCompletedSetup then
+				state.PlaytimeSeconds += 1
+				for bKey, rem in pairs(state.ActiveBoosters) do
+					if rem > 0 then
+						state.ActiveBoosters[bKey] = math.max(0, rem - 1)
+					end
+				end
+			end
+
 			recalculateRates(player, state)
 
 			if state.HasCompletedSetup then
@@ -1137,13 +1845,13 @@ task.spawn(function()
 				local bioLvl = state.PlanetUpgrades.BiosphereFertility or 0
 				local gaiaTier = state.MachineTiers.GaiaBioVat or 0
 
-				local popGrowthRate = 0.22
+				local popGrowthRate = 0.08
 					* pType.Multipliers.PopGrowth
 					* species.BaseMultipliers.PopGrowth
 					* activeNode.Multipliers.PopGrowth
-					* math.pow(1.28, bioLvl)
-					* math.pow(1.38, gaiaTier)
-					* math.pow(2.0, state.Ascensions)
+					* (1 + bioLvl * 0.15)
+					* (1 + gaiaTier * 0.25)
+					* math.pow(1.4, state.Ascensions)
 				state.Population = math.floor((state.Population + popGrowthRate) * 100) / 100
 			end
 

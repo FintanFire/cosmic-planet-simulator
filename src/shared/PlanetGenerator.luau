@@ -398,13 +398,14 @@ function PlanetGenerator.BuildSpeciesCharacterModel(speciesId: string, scale: nu
 end
 
 -- ============================================================================
--- 2. HIGH-DETAIL SPACE COLLECTIBLE MODELS (Icon-Only Badge, Natural Materials!)
+-- 2. HIGH-DETAIL SPACE COLLECTIBLE MODELS (Distance-Tiered Materials & Icon Badge!)
 -- ============================================================================
 local COLLECTIBLE_ICONS: { [string]: string } = {
 	Minerals = "⛏",
 	Biomass = "🌿",
 	Energy = "⚡",
 	Tech = "🔬",
+	StarGems = "💎",
 	PopulationPod = "🛸",
 	SupernovaChest = "🌟",
 }
@@ -413,10 +414,18 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 	collectibleType: string,
 	pos: Vector3,
 	_title: string,
-	accentColor: Color3
+	accentColor: Color3,
+	zoneTier: number?
 ): Model
+	local tier = math.clamp(zoneTier or 1, 1, 6)
+	local zDef = PlanetConfig.DeepSpaceZones[tier] or PlanetConfig.DeepSpaceZones[1]
+	local s = zDef.ScaleMod or 1.0
+	local zoneRockMat = resolveMaterial(zDef.RockMat, Enum.Material.Rock)
+	local zoneAccentMat = resolveMaterial(zDef.AccentMat, Enum.Material.Limestone)
+	local zTheme = zDef.ThemeColor or accentColor
+
 	local model = Instance.new("Model")
-	model.Name = "SpaceCollectible_" .. collectibleType
+	model.Name = string.format("SpaceCollectible_T%d_%s", tier, collectibleType)
 	pcall(function()
 		model.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
 	end)
@@ -425,62 +434,63 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 	local core = createPart({
 		Name = "CollectibleRoot",
 		Shape = Enum.PartType.Ball,
-		Size = Vector3.new(16, 16, 16),
+		Size = Vector3.new(16 * s, 16 * s, 16 * s),
 		CFrame = originCF,
-		Color = Color3.fromRGB(92, 88, 98),
-		Material = Enum.Material.Rock,
+		Color = Color3.fromRGB(92, 88, 98):Lerp(zTheme, 0.22),
+		Material = zoneRockMat,
 		Parent = model,
 	})
 	model.PrimaryPart = core
 
 	if collectibleType == "Minerals" then
-		-- Natural Rock Asteroid Geode with Limestone & Gold Ore Veins (only tiny core crystal glows)
-		core.Material = Enum.Material.Rock
-		core.Color = Color3.fromRGB(96, 90, 84)
-		core.Size = Vector3.new(19, 15, 17)
+		-- Zone-Tiered Ore Geode: Iron Rock (T1) -> Golden Sandstone (T2) -> Cobalt Glacier (T3) -> Molten Mythril (T4) -> Dark-Matter (T5) -> Omnium (T6)
+		core.Material = zoneRockMat
+		core.Color = Color3.fromRGB(96, 90, 84):Lerp(zTheme, 0.28)
+		core.Size = Vector3.new(19 * s, 15 * s, 17 * s)
 		for b = 1, 3 do
 			local a = (b / 3) * math.pi * 2
 			createPart({
 				Name = "RockBoulder_" .. b,
 				Shape = Enum.PartType.Ball,
-				Size = Vector3.new(13, 11, 14),
-				CFrame = originCF * CFrame.new(math.cos(a) * 6, -2, math.sin(a) * 6),
-				Color = Color3.fromRGB(78, 74, 70),
-				Material = Enum.Material.Slate,
+				Size = Vector3.new(13 * s, 11 * s, 14 * s),
+				CFrame = originCF * CFrame.new(math.cos(a) * 6 * s, -2 * s, math.sin(a) * 6 * s),
+				Color = Color3.fromRGB(72, 70, 78):Lerp(zTheme, 0.18),
+				Material = (tier >= 4) and Enum.Material.Basalt or Enum.Material.Slate,
 				Parent = model,
 			})
 		end
-		for c = 1, 5 do
-			local a = (c / 5) * math.pi * 2
+		local spikeCount = 4 + math.min(tier, 4)
+		for c = 1, spikeCount do
+			local a = (c / spikeCount) * math.pi * 2
 			createWedge({
 				Name = "OreSpike_" .. c,
-				Size = Vector3.new(4.2, 13, 4.2),
-				CFrame = originCF * CFrame.Angles(math.rad(25), a, math.rad(-18)) * CFrame.new(0, 7, 0),
-				Color = Color3.fromRGB(215, 165, 55),
-				Material = (c == 1) and Enum.Material.Neon or Enum.Material.Limestone,
+				Size = Vector3.new(4.2 * s, (12 + tier * 1.4) * s, 4.2 * s),
+				CFrame = originCF * CFrame.Angles(math.rad(25), a, math.rad(-18)) * CFrame.new(0, 7 * s, 0),
+				Color = accentColor:Lerp(zTheme, 0.45),
+				Material = (c <= math.ceil(tier * 0.4)) and Enum.Material.Neon or zoneAccentMat,
 				Parent = model,
 			})
 		end
 	elseif collectibleType == "Biomass" then
-		-- Living Botanical Asteroid with Earth Soil, Leafy Moss & Wood Trees
-		core.Material = Enum.Material.Ground
-		core.Color = Color3.fromRGB(92, 68, 48)
+		-- Living Botanical Asteroid upgraded by Zone Biome
+		core.Material = (tier == 3) and Enum.Material.Glacier or Enum.Material.Ground
+		core.Color = Color3.fromRGB(92, 68, 48):Lerp(zTheme, 0.20)
 		createPart({
 			Name = "MossCrust",
 			Shape = Enum.PartType.Ball,
-			Size = Vector3.new(17.5, 13, 17.5),
-			CFrame = originCF * CFrame.new(0, 2.5, 0),
-			Color = Color3.fromRGB(52, 145, 68),
+			Size = Vector3.new(17.5 * s, 13 * s, 17.5 * s),
+			CFrame = originCF * CFrame.new(0, 2.5 * s, 0),
+			Color = Color3.fromRGB(52, 145, 68):Lerp(zTheme, 0.30),
 			Material = Enum.Material.LeafyGrass,
 			Parent = model,
 		})
 		for m = 1, 4 do
 			local a = (m / 4) * math.pi * 2
-			local stemCF = originCF * CFrame.Angles(math.rad(32), a, 0) * CFrame.new(0, 9, 0)
+			local stemCF = originCF * CFrame.Angles(math.rad(32), a, 0) * CFrame.new(0, 9 * s, 0)
 			createPart({
 				Name = "TreeTrunk_" .. m,
 				Shape = Enum.PartType.Cylinder,
-				Size = Vector3.new(7, 2.8, 2.8),
+				Size = Vector3.new(7 * s, 2.8 * s, 2.8 * s),
 				CFrame = stemCF * CFrame.Angles(0, 0, math.rad(90)),
 				Color = Color3.fromRGB(110, 75, 45),
 				Material = Enum.Material.Wood,
@@ -489,26 +499,27 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 			createPart({
 				Name = "TreeCanopy_" .. m,
 				Shape = Enum.PartType.Ball,
-				Size = Vector3.new(8.5, 5.5, 8.5),
-				CFrame = stemCF * CFrame.new(0, 4, 0),
-				Color = Color3.fromRGB(48, 168, 75),
+				Size = Vector3.new(8.5 * s, 5.5 * s, 8.5 * s),
+				CFrame = stemCF * CFrame.new(0, 4 * s, 0),
+				Color = Color3.fromRGB(48, 168, 75):Lerp(zTheme, 0.35),
 				Material = Enum.Material.Grass,
 				Parent = model,
 			})
 		end
 	elseif collectibleType == "Energy" then
-		-- Radioactive / Plasma Pulsar Core (Radioactivity/Stars SHOULD glow!) surrounded by matte Basalt containment rings
+		-- Radioactive / Plasma Pulsar Core surrounded by matte Basalt containment rings
 		core.Material = Enum.Material.Neon
-		core.Color = accentColor
-		core.Size = Vector3.new(13, 13, 13)
-		for r = 1, 2 do
-			local rTilt = CFrame.Angles(math.rad(r == 1 and 35 or -35), 0, math.rad(r == 1 and 25 or -25))
+		core.Color = accentColor:Lerp(zTheme, 0.4)
+		core.Size = Vector3.new(13 * s, 13 * s, 13 * s)
+		local ringCount = (tier >= 4) and 3 or 2
+		for r = 1, ringCount do
+			local rTilt = CFrame.Angles(math.rad(r * 35), math.rad(r * 20), math.rad(r == 1 and 25 or -25))
 			for seg = 1, 12 do
 				local a = (seg / 12) * math.pi * 2
 				createPart({
 					Name = string.format("ContainmentRing_%d_%d", r, seg),
-					Size = Vector3.new(2.4, 2.0, 7.5),
-					CFrame = originCF * rTilt * CFrame.Angles(0, a, 0) * CFrame.new(13, 0, 0),
+					Size = Vector3.new(2.4 * s, 2.0 * s, 7.5 * s),
+					CFrame = originCF * rTilt * CFrame.Angles(0, a, 0) * CFrame.new(13 * s, 0, 0),
 					Color = Color3.fromRGB(52, 56, 66),
 					Material = Enum.Material.Basalt,
 					Parent = model,
@@ -518,23 +529,23 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 	elseif collectibleType == "Tech" then
 		-- Matte Precursor Satellite with Concrete/Slate Chassis & Solar Wings
 		core.Shape = Enum.PartType.Cylinder
-		core.Size = Vector3.new(14, 10, 10)
+		core.Size = Vector3.new(14 * s, 10 * s, 10 * s)
 		core.CFrame = originCF * CFrame.Angles(0, 0, math.rad(90))
 		core.Material = Enum.Material.Concrete
-		core.Color = Color3.fromRGB(145, 152, 165)
+		core.Color = Color3.fromRGB(145, 152, 165):Lerp(zTheme, 0.22)
 		for _, side in ipairs({ -1, 1 }) do
 			createPart({
 				Name = "SolarWing_" .. side,
-				Size = Vector3.new(22, 1.0, 9),
-				CFrame = originCF * CFrame.new(side * 16, 0, 0) * CFrame.Angles(math.rad(20), 0, 0),
-				Color = Color3.fromRGB(38, 58, 92),
+				Size = Vector3.new(22 * s, 1.0 * s, 9 * s),
+				CFrame = originCF * CFrame.new(side * 16 * s, 0, 0) * CFrame.Angles(math.rad(20), 0, 0),
+				Color = Color3.fromRGB(38, 58, 92):Lerp(zTheme, 0.25),
 				Material = Enum.Material.Slate,
 				Parent = model,
 			})
 			createPart({
 				Name = "SolarFrame_" .. side,
-				Size = Vector3.new(22.4, 1.2, 1.2),
-				CFrame = originCF * CFrame.new(side * 16, 0, 0) * CFrame.Angles(math.rad(20), 0, 0),
+				Size = Vector3.new(22.4 * s, 1.2 * s, 1.2 * s),
+				CFrame = originCF * CFrame.new(side * 16 * s, 0, 0) * CFrame.Angles(math.rad(20), 0, 0),
 				Color = Color3.fromRGB(95, 102, 115),
 				Material = Enum.Material.DiamondPlate,
 				Parent = model,
@@ -543,23 +554,44 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 		createPart({
 			Name = "RadioDish",
 			Shape = Enum.PartType.Ball,
-			Size = Vector3.new(8, 3, 8),
-			CFrame = originCF * CFrame.new(0, 8, 0),
+			Size = Vector3.new(8 * s, 3 * s, 8 * s),
+			CFrame = originCF * CFrame.new(0, 8 * s, 0),
 			Color = Color3.fromRGB(175, 182, 195),
 			Material = Enum.Material.Concrete,
 			Parent = model,
 		})
+	elseif collectibleType == "StarGems" then
+		-- Crystalline Star-Gem Geode Cluster (Basalt/Slate base + multi-shard Gem Spires!)
+		core.Shape = Enum.PartType.Ball
+		core.Size = Vector3.new(17 * s, 12 * s, 17 * s)
+		core.Color = Color3.fromRGB(48, 52, 66)
+		core.Material = Enum.Material.Basalt
+		local gemCol = zTheme
+		for g = 1, 6 do
+			local a = (g / 6) * math.pi * 2
+			local h = (14 + (g % 3) * 4) * s
+			local w = (3.8 + (g % 2) * 1.2) * s
+			local tilt = CFrame.Angles(math.rad(18 + (g % 3) * 8), a, math.rad(-14))
+			createWedge({
+				Name = "GemCrystalShaft_" .. g,
+				Size = Vector3.new(w, h, w),
+				CFrame = originCF * tilt * CFrame.new(0, h * 0.45, 0),
+				Color = gemCol,
+				Material = (g <= 2) and Enum.Material.Neon or Enum.Material.Glacier,
+				Parent = model,
+			})
+		end
 	elseif collectibleType == "PopulationPod" then
 		-- Matte Spacecraft Escape Pod with Basalt Heatshield
 		core.Shape = Enum.PartType.Cylinder
-		core.Size = Vector3.new(18, 11, 11)
+		core.Size = Vector3.new(18 * s, 11 * s, 11 * s)
 		core.Color = Color3.fromRGB(185, 192, 205)
 		core.Material = Enum.Material.Concrete
 		createPart({
 			Name = "PodNosecone",
 			Shape = Enum.PartType.Ball,
-			Size = Vector3.new(11, 11, 11),
-			CFrame = originCF * CFrame.new(8, 0, 0),
+			Size = Vector3.new(11 * s, 11 * s, 11 * s),
+			CFrame = originCF * CFrame.new(8 * s, 0, 0),
 			Color = Color3.fromRGB(55, 62, 74),
 			Material = Enum.Material.Basalt,
 			Parent = model,
@@ -567,8 +599,8 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 		createPart({
 			Name = "PodThruster",
 			Shape = Enum.PartType.Cylinder,
-			Size = Vector3.new(3.5, 7.5, 7.5),
-			CFrame = originCF * CFrame.new(-10, 0, 0),
+			Size = Vector3.new(3.5 * s, 7.5 * s, 7.5 * s),
+			CFrame = originCF * CFrame.new(-10 * s, 0, 0),
 			Color = Color3.fromRGB(255, 145, 35),
 			Material = Enum.Material.Neon,
 			Parent = model,
@@ -576,34 +608,34 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 	elseif collectibleType == "SupernovaChest" then
 		-- Ancient Carved Sandstone & Basalt Vault with a glowing inner seam
 		core.Shape = Enum.PartType.Block
-		core.Size = Vector3.new(18, 13, 14)
-		core.Color = Color3.fromRGB(175, 142, 82)
+		core.Size = Vector3.new(18 * s, 13 * s, 14 * s)
+		core.Color = Color3.fromRGB(175, 142, 82):Lerp(zTheme, 0.35)
 		core.Material = Enum.Material.Sandstone
 		createPart({
 			Name = "VaultLid",
 			Shape = Enum.PartType.Cylinder,
-			Size = Vector3.new(18.4, 13.5, 13.5),
-			CFrame = originCF * CFrame.new(0, 5.5, 0),
+			Size = Vector3.new(18.4 * s, 13.5 * s, 13.5 * s),
+			CFrame = originCF * CFrame.new(0, 5.5 * s, 0),
 			Color = Color3.fromRGB(72, 66, 78),
 			Material = Enum.Material.Basalt,
 			Parent = model,
 		})
 		createPart({
 			Name = "VaultCoreSeam",
-			Size = Vector3.new(18.6, 1.4, 14.4),
-			CFrame = originCF * CFrame.new(0, 2, 0),
-			Color = Color3.fromRGB(255, 205, 65),
+			Size = Vector3.new(18.6 * s, 1.4 * s, 14.4 * s),
+			CFrame = originCF * CFrame.new(0, 2 * s, 0),
+			Color = zTheme,
 			Material = Enum.Material.Neon,
 			Parent = model,
 		})
 	end
 
-	-- Compact, non-disruptive circular Icon Badge (NO text clutter!)
+	-- Compact, non-disruptive circular Icon Badge (with subtle T1..T6 Tier Pip!)
 	local bb = Instance.new("BillboardGui")
 	bb.Name = "CollectibleIconGui"
-	bb.Size = UDim2.new(0, 34, 0, 34)
-	bb.StudsOffset = Vector3.new(0, 15, 0)
-	bb.MaxDistance = 240
+	bb.Size = UDim2.new(0, 36, 0, 36)
+	bb.StudsOffset = Vector3.new(0, 15 * s, 0)
+	bb.MaxDistance = 260
 	bb.AlwaysOnTop = false
 	bb.LightInfluence = 0
 	bb.Adornee = core
@@ -612,7 +644,7 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 	local badge = Instance.new("Frame")
 	badge.Size = UDim2.fromScale(1, 1)
 	badge.BackgroundColor3 = Color3.fromRGB(16, 20, 32)
-	badge.BackgroundTransparency = 0.25
+	badge.BackgroundTransparency = 0.22
 	badge.Parent = bb
 
 	local corner = Instance.new("UICorner")
@@ -620,15 +652,15 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 	corner.Parent = badge
 
 	local stroke = Instance.new("UIStroke")
-	stroke.Color = accentColor
-	stroke.Thickness = 1.8
-	stroke.Transparency = 0.2
+	stroke.Color = zTheme
+	stroke.Thickness = (tier >= 3) and 2.2 or 1.8
+	stroke.Transparency = 0.15
 	stroke.Parent = badge
 
 	local iconLbl = Instance.new("TextLabel")
 	iconLbl.Name = "IconLabel"
-	iconLbl.Size = UDim2.fromScale(0.78, 0.78)
-	iconLbl.Position = UDim2.fromScale(0.11, 0.11)
+	iconLbl.Size = UDim2.fromScale(0.76, 0.76)
+	iconLbl.Position = UDim2.fromScale(0.12, 0.08)
 	iconLbl.BackgroundTransparency = 1
 	iconLbl.Text = COLLECTIBLE_ICONS[collectibleType] or "★"
 	iconLbl.TextColor3 = accentColor
@@ -636,7 +668,77 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 	iconLbl.TextScaled = true
 	iconLbl.Parent = badge
 
+	if tier >= 2 then
+		local tierTag = Instance.new("TextLabel")
+		tierTag.Name = "TierBadge"
+		tierTag.Size = UDim2.new(0, 18, 0, 11)
+		tierTag.AnchorPoint = Vector2.new(0.5, 1)
+		tierTag.Position = UDim2.new(0.5, 0, 1, 2)
+		tierTag.BackgroundColor3 = Color3.fromRGB(12, 16, 28)
+		tierTag.BackgroundTransparency = 0.15
+		tierTag.Text = "T" .. tostring(tier)
+		tierTag.TextColor3 = zTheme
+		tierTag.Font = Enum.Font.FredokaOne
+		tierTag.TextSize = 9
+		tierTag.Parent = badge
+		local tc = Instance.new("UICorner")
+		tc.CornerRadius = UDim.new(0, 4)
+		tc.Parent = tierTag
+	end
+
 	return model
+end
+
+-- Build a 3D Orbital Companion / Satellite Drone Model
+function PlanetGenerator.BuildCompanionDroneModel(companionId: string, isGolden: boolean?): Model
+	local cDef = PlanetConfig.Companions[companionId] or PlanetConfig.Companions.SputnikMiner
+	local m = Instance.new("Model")
+	m.Name = "CompanionDrone_" .. companionId
+	local mainCol = isGolden and Color3.fromRGB(255, 215, 55) or cDef.Color
+
+	local body = createPart({
+		Name = "DroneCore",
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.new(4.2, 4.2, 4.2),
+		CFrame = CFrame.new(0, 0, 0),
+		Color = Color3.fromRGB(58, 64, 78),
+		Material = isGolden and Enum.Material.Sandstone or Enum.Material.Slate,
+		Parent = m,
+	})
+	m.PrimaryPart = body
+
+	createPart({
+		Name = "DroneEye",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(1.2, 2.2, 2.2),
+		CFrame = CFrame.new(0, 0, -1.8) * CFrame.Angles(0, math.rad(90), 0),
+		Color = mainCol,
+		Material = Enum.Material.Neon,
+		Parent = m,
+	})
+
+	for _, side in ipairs({ -1, 1 }) do
+		createPart({
+			Name = "DroneWing_" .. side,
+			Size = Vector3.new(4.5, 0.5, 2.0),
+			CFrame = CFrame.new(side * 3.6, 0, 0) * CFrame.Angles(0, 0, math.rad(side * 12)),
+			Color = mainCol,
+			Material = Enum.Material.Concrete,
+			Parent = m,
+		})
+	end
+
+	createPart({
+		Name = "DroneHalo",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.4, 5.8, 5.8),
+		CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = mainCol,
+		Material = Enum.Material.Limestone,
+		Parent = m,
+	})
+
+	return m
 end
 
 -- ============================================================================
