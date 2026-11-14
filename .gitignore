@@ -1,0 +1,12 @@
+# Roblox Studio binary / lock files (use Rojo + Git instead)
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxm
+*.rbxmx
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+*.tmp
+*.log

@@ -1,0 +1,5 @@
+# Rokit toolchain manifest so both you and your brother use the exact same Rojo version.
+# Run `rokit install` in this folder to install.
+
+[tools]
+rojo = "rojo-rbx/rojo@7.7.1"
