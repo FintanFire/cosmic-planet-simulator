@@ -62,10 +62,10 @@ end
 
 local function makeMachineBillboard(adornee: BasePart, title: string, subtitle: string, color: Color3, offsetY: number)
 	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.new(0, 340, 0, 76)
+	bb.Size = UDim2.new(62, 0, 14, 0)
 	bb.StudsOffset = Vector3.new(0, offsetY, 0)
 	bb.AlwaysOnTop = false
-	bb.MaxDistance = 1400
+	bb.MaxDistance = 850
 	bb.LightInfluence = 0
 	bb.Adornee = adornee
 	bb.Parent = adornee
@@ -77,7 +77,7 @@ local function makeMachineBillboard(adornee: BasePart, title: string, subtitle: 
 	bg.Parent = bb
 
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 12)
+	corner.CornerRadius = UDim.new(0.16, 0)
 	corner.Parent = bg
 
 	local stroke = Instance.new("UIStroke")
