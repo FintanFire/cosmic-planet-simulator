@@ -30,6 +30,9 @@ local CompanionActionEvent = Remotes:WaitForChild("CompanionAction") :: RemoteEv
 local BuyDroneSlotEvent = Remotes:WaitForChild("BuyDroneSlot") :: RemoteEvent
 local SetDroneTargetEvent = Remotes:WaitForChild("SetDroneTarget") :: RemoteEvent
 local DroneBeamFXEvent = Remotes:WaitForChild("DroneBeamFX") :: RemoteEvent
+local EvolveDronePathEvent = Remotes:WaitForChild("EvolveDronePath") :: RemoteEvent
+local DetonateStickyBombsEvent = Remotes:WaitForChild("DetonateStickyBombs") :: RemoteEvent
+local StickyBombFXEvent = Remotes:WaitForChild("StickyBombFX") :: RemoteEvent
 local BuyBoosterEvent = Remotes:WaitForChild("BuyBooster") :: RemoteEvent
 local ClaimPlaytimeGiftEvent = Remotes:WaitForChild("ClaimPlaytimeGift") :: RemoteEvent
 local RedeemPromoCodeEvent = Remotes:WaitForChild("RedeemPromoCode") :: RemoteEvent
@@ -118,6 +121,8 @@ local currentState: any = {
 	DronesHatched = 1,
 	DroneLevels = 0,
 	DroneSlotLevel = 0,
+	DronePathClassId = "BasicDrone",
+	StickyBombCount = 0,
 	PlaytimeSeconds = 0,
 	ClaimedPlaytimeGifts = {},
 	RedeemedCodes = {},
@@ -126,8 +131,8 @@ local currentState: any = {
 	ShardUpgrades = { PermValue = 0, PermGems = 0, ExtraDroneSlots = 0, PermSpeed = 0 },
 	Companions = {
 		{
-			Uid = "Drone_Starter",
-			Id = "ScrapWelder",
+			Uid = "Drone_PathMain",
+			Id = "BasicDrone",
 			Level = 1,
 			IsGolden = false,
 			Equipped = true,
@@ -1795,30 +1800,32 @@ addCorner(topCompactBtn, 10)
 local topCompactStroke = addBorderStroke(topCompactBtn, Color3.fromRGB(8, 12, 22), 3.0)
 
 -- Decorative racing stripes on the right of the top banner (matching reference screenshot)
-local stripe1 = Instance.new("Frame")
-stripe1.Size = UDim2.new(0, 14, 1, 0)
-stripe1.Position = UDim2.new(1, -54, 0, 0)
-stripe1.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-stripe1.BackgroundTransparency = 0.78
-stripe1.BorderSizePixel = 0
-stripe1.Parent = topCompactBtn
+do
+	local stripe1 = Instance.new("Frame")
+	stripe1.Size = UDim2.new(0, 14, 1, 0)
+	stripe1.Position = UDim2.new(1, -54, 0, 0)
+	stripe1.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	stripe1.BackgroundTransparency = 0.78
+	stripe1.BorderSizePixel = 0
+	stripe1.Parent = topCompactBtn
 
-local stripe2 = Instance.new("Frame")
-stripe2.Size = UDim2.new(0, 8, 1, 0)
-stripe2.Position = UDim2.new(1, -34, 0, 0)
-stripe2.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-stripe2.BackgroundTransparency = 0.84
-stripe2.BorderSizePixel = 0
-stripe2.Parent = topCompactBtn
+	local stripe2 = Instance.new("Frame")
+	stripe2.Size = UDim2.new(0, 8, 1, 0)
+	stripe2.Position = UDim2.new(1, -34, 0, 0)
+	stripe2.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	stripe2.BackgroundTransparency = 0.84
+	stripe2.BorderSizePixel = 0
+	stripe2.Parent = topCompactBtn
 
-local topBannerIcon = Instance.new("TextLabel")
-topBannerIcon.Size = UDim2.new(0, 32, 0, 32)
-topBannerIcon.Position = UDim2.new(0, 10, 0.5, -16)
-topBannerIcon.BackgroundTransparency = 1
-topBannerIcon.Text = "🪐"
-topBannerIcon.TextSize = 20
-topBannerIcon.Font = Enum.Font.GothamBlack
-topBannerIcon.Parent = topCompactBtn
+	local topBannerIcon = Instance.new("TextLabel")
+	topBannerIcon.Size = UDim2.new(0, 32, 0, 32)
+	topBannerIcon.Position = UDim2.new(0, 10, 0.5, -16)
+	topBannerIcon.BackgroundTransparency = 1
+	topBannerIcon.Text = "🪐"
+	topBannerIcon.TextSize = 20
+	topBannerIcon.Font = Enum.Font.GothamBlack
+	topBannerIcon.Parent = topCompactBtn
+end
 
 local topCompactSummaryLbl = Instance.new("TextLabel")
 topCompactSummaryLbl.Size = UDim2.new(1, -84, 0, 22)
@@ -1898,6 +1905,101 @@ levelXPBarText.TextSize = 13
 levelXPBarText.ZIndex = 2
 levelXPBarText.Parent = levelXPBarBg
 addTextStroke(levelXPBarText, 1.8)
+
+-- A1-DIEP. DIEP.IO LIVE EVOLUTION CHOICE BANNER (Auto-appears below XP bar at Level 3 & Level 8!)
+local isDiepBannerMinimized = false
+local diepToggleBtn: TextButton
+local diepEvoPanel: Frame
+local diepCardsRow: Frame
+local lastDiepSig = ""
+local updateDiepEvoBanner: () -> ()
+do
+	diepToggleBtn = Instance.new("TextButton")
+	diepToggleBtn.Name = "DiepEvoToggleChip"
+	diepToggleBtn.Size = UDim2.new(0, 210, 0, 24)
+	diepToggleBtn.AnchorPoint = Vector2.new(0.5, 0)
+	diepToggleBtn.Position = UDim2.new(0.5, 0, 0, 46)
+	diepToggleBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	diepToggleBtn.Text = "🧬 DRONE EVOLUTION READY! [SHOW]"
+	diepToggleBtn.TextColor3 = Color3.fromRGB(16, 26, 12)
+	diepToggleBtn.Font = Enum.Font.GothamBlack
+	diepToggleBtn.TextSize = 11
+	diepToggleBtn.Visible = false
+	diepToggleBtn.ZIndex = 7
+	diepToggleBtn.Parent = inGameHUD
+	addCorner(diepToggleBtn, 8)
+	addBorderStroke(diepToggleBtn, Color3.fromRGB(10, 16, 10), 2.2)
+	addGradient(diepToggleBtn, Color3.fromRGB(128, 255, 75), Color3.fromRGB(58, 205, 32), 90)
+
+	diepEvoPanel = Instance.new("Frame")
+	diepEvoPanel.Name = "DiepEvoChoiceBanner"
+	diepEvoPanel.Size = UDim2.new(0, 620, 0, 142)
+	diepEvoPanel.AnchorPoint = Vector2.new(0.5, 0)
+	diepEvoPanel.Position = UDim2.new(0.5, 0, 0, 46)
+	diepEvoPanel.BackgroundColor3 = Color3.fromRGB(18, 28, 56)
+	diepEvoPanel.BackgroundTransparency = 0.06
+	diepEvoPanel.Visible = false
+	diepEvoPanel.ZIndex = 7
+	diepEvoPanel.Parent = inGameHUD
+	addCorner(diepEvoPanel, 14)
+	addBorderStroke(diepEvoPanel, Color3.fromRGB(10, 14, 24), 3.0)
+	addGradient(diepEvoPanel, Color3.fromRGB(38, 62, 120), Color3.fromRGB(18, 30, 64), 90)
+
+	local diepHeaderLbl = Instance.new("TextLabel")
+	diepHeaderLbl.Size = UDim2.new(1, -90, 0, 22)
+	diepHeaderLbl.Position = UDim2.new(0, 12, 0, 4)
+	diepHeaderLbl.BackgroundTransparency = 1
+	diepHeaderLbl.Text = "🧬 BASIC DRONE UPGRADE READY (LV.5) — CHOOSE 1 OF 5 PATHS!"
+	diepHeaderLbl.TextColor3 = Color3.fromRGB(128, 255, 95)
+	diepHeaderLbl.Font = Enum.Font.GothamBlack
+	diepHeaderLbl.TextSize = 12
+	diepHeaderLbl.TextXAlignment = Enum.TextXAlignment.Left
+	diepHeaderLbl.ZIndex = 8
+	diepHeaderLbl.Parent = diepEvoPanel
+	addTextStroke(diepHeaderLbl, 1.5)
+
+	local diepMinBtn = Instance.new("TextButton")
+	diepMinBtn.Size = UDim2.new(0, 66, 0, 20)
+	diepMinBtn.Position = UDim2.new(1, -74, 0, 5)
+	diepMinBtn.BackgroundColor3 = Color3.fromRGB(28, 42, 78)
+	diepMinBtn.Text = "HIDE"
+	diepMinBtn.TextColor3 = Color3.fromRGB(220, 232, 255)
+	diepMinBtn.Font = Enum.Font.GothamBlack
+	diepMinBtn.TextSize = 10
+	diepMinBtn.ZIndex = 8
+	diepMinBtn.Parent = diepEvoPanel
+	addCorner(diepMinBtn, 6)
+	addBorderStroke(diepMinBtn, Color3.fromRGB(10, 14, 24), 1.8)
+
+	diepCardsRow = Instance.new("Frame")
+	diepCardsRow.Size = UDim2.new(1, -16, 1, -32)
+	diepCardsRow.Position = UDim2.new(0, 8, 0, 28)
+	diepCardsRow.BackgroundTransparency = 1
+	diepCardsRow.ZIndex = 8
+	diepCardsRow.Parent = diepEvoPanel
+
+	local diepCardsLayout = Instance.new("UIListLayout")
+	diepCardsLayout.FillDirection = Enum.FillDirection.Horizontal
+	diepCardsLayout.Padding = UDim.new(0, 8)
+	diepCardsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	diepCardsLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	diepCardsLayout.Parent = diepCardsRow
+
+	diepMinBtn.MouseButton1Click:Connect(function()
+		playSFX(sfxClick, 0.25)
+		isDiepBannerMinimized = true
+		if updateDiepEvoBanner then
+			updateDiepEvoBanner()
+		end
+	end)
+	diepToggleBtn.MouseButton1Click:Connect(function()
+		playSFX(sfxClick, 0.25)
+		isDiepBannerMinimized = false
+		if updateDiepEvoBanner then
+			updateDiepEvoBanner()
+		end
+	end)
+end
 
 -- Collapsible Telemetry & Quest Drawer (Detached so only the Level & XP bar shows at top-center)
 local topProgressionCard = Instance.new("Frame")
@@ -2384,10 +2486,10 @@ topCatLayout.Parent = topCategoryBar
 local topCategoryBtns: { [string]: { Btn: TextButton, Grad: UIGradient } } = {}
 local topCategoryDefs = {
 	{ Order = 1, Key = "Drones", Label = "🛸 DRONES", Title = "DRONE SHOP" },
-	{ Order = 2, Key = "PlanetValue", Label = "⬆️ UPGRADES", Title = "PLANET UPGRADES" },
-	{ Order = 3, Key = "Machines", Label = "⚙️ MACHINES", Title = "HUB MACHINES" },
+	{ Order = 2, Key = "DronePath", Label = "🧬 CLASS PATH", Title = "DIEP.IO DRONE PATH" },
+	{ Order = 3, Key = "PlanetValue", Label = "⬆️ UPGRADES", Title = "PLANET UPGRADES" },
 	{ Order = 4, Key = "WarpAscend", Label = "🛰️ STATIONS", Title = "STATIONS & WARP" },
-	{ Order = 5, Key = "Evolution", Label = "🧬 EVOLVE", Title = "EVOLUTION TREE" },
+	{ Order = 5, Key = "Evolution", Label = "🌟 SPECIES", Title = "SPECIES EVOLUTION" },
 	{ Order = 6, Key = "BoostsRewards", Label = "🎁 REWARDS", Title = "REWARDS & BOOSTS" },
 }
 
@@ -2463,6 +2565,7 @@ local evolutionPage = createTabPage("Evolution")
 local planetValuePage = createTabPage("PlanetValue")
 local warpAscendPage = createTabPage("WarpAscend")
 local boostsRewardsPage = createTabPage("BoostsRewards")
+local dronePathPage = createTabPage("DronePath")
 
 -- Drones Page uses a Full Master-Detail Split Frame (Left 62% Rarity Card Grid + Right 38% Circular 3D Spotlight Inspector!)
 local dronesPage = Instance.new("Frame")
@@ -2503,6 +2606,9 @@ openMachineModal = function(machineId: string?)
 	end
 	updateTopCategoryTabVisuals()
 	modalFrame.Visible = true
+	if updateDiepEvoBanner then
+		updateDiepEvoBanner()
+	end
 end
 
 toggleTab = function(tabKey: string, titleText: string)
@@ -2510,6 +2616,9 @@ toggleTab = function(tabKey: string, titleText: string)
 	if modalFrame.Visible and activeTab == tabKey and selectedMachineFilter == nil then
 		modalFrame.Visible = false
 		activeTab = nil
+		if updateDiepEvoBanner then
+			updateDiepEvoBanner()
+		end
 		return
 	end
 	selectedMachineFilter = nil
@@ -2525,12 +2634,18 @@ toggleTab = function(tabKey: string, titleText: string)
 	end
 	updateTopCategoryTabVisuals()
 	modalFrame.Visible = true
+	if updateDiepEvoBanner then
+		updateDiepEvoBanner()
+	end
 end
 
 closeBtn.MouseButton1Click:Connect(function()
 	playSFX(sfxClick, 0.28)
 	modalFrame.Visible = false
 	activeTab = nil
+	if updateDiepEvoBanner then
+		updateDiepEvoBanner()
+	end
 end)
 
 -- BUILD DEDICATED HUB MACHINE CARDS (DysonReactor, TitanRefinery, GaiaBioVat, AstralObservatory)
@@ -2923,7 +3038,7 @@ local buyDroneSlotBtn: TextButton
 local robuxDroneSlotBtn: TextButton
 local droneInventoryGridFrame: Frame
 local lastDroneInvUISignature = ""
-local selectedShowcaseItem: { Kind: string, Id: string, Uid: string? } = { Kind = "Pod", Id = "BasicDronePod", Uid = nil }
+local selectedShowcaseItem: { Kind: string, Id: string, Uid: string? } = { Kind = "Pod", Id = "LunarPod", Uid = nil }
 local updateDroneSpotlightPanel: () -> ()
 local spotlightViewportModel: Model? = nil
 local spotlightViewportCam: Camera? = nil
@@ -3080,7 +3195,7 @@ do
 	podGrid.SortOrder = Enum.SortOrder.LayoutOrder
 	podGrid.Parent = podSectionRow
 
-	local podCardPreviewDrones = { "ScrapProbe", "BioPollinator", "SolarSentinel", "OmniHarvester" }
+	local podCardPreviewDrones = { "BasicDrone", "BasicDrone", "BasicDrone", "BasicDrone" }
 	local podCardBgColors = {
 		{ Top = Color3.fromRGB(122, 142, 168), Bot = Color3.fromRGB(76, 92, 116) }, -- Slate Grey (like TV Remote)
 		{ Top = Color3.fromRGB(58, 168, 245), Bot = Color3.fromRGB(28, 108, 198) }, -- Sky Blue (like Foam Finger)
@@ -3121,7 +3236,7 @@ do
 		vp.Position = UDim2.new(0, 6, 0, 16)
 		vp.BackgroundTransparency = 1
 		vp.Parent = pBtn
-		populateDroneViewport(vp, podCardPreviewDrones[podIdx] or "ScrapProbe", podIdx == 4, 1)
+		populateDroneViewport(vp, podCardPreviewDrones[podIdx] or "BasicDrone", podIdx == 4, 1)
 
 		local pName = Instance.new("TextLabel")
 		pName.Size = UDim2.new(1, -8, 0, 18)
@@ -3311,15 +3426,17 @@ do
 
 					spotlightViewportModel, spotlightViewportCam = populateDroneViewport(spotlightViewport, foundEntry.Id, isGold, lvl)
 					spotTitleLbl.Text = (isGold and "★ " or "") .. cDef.Name
-					spotRarityLbl.Text = string.format("%s DRONE  •  LV. %d / %d", string.upper(cDef.Rarity), lvl, PlanetConfig.MaxDroneLevel or 25)
+					spotRarityLbl.Text = string.format("%s  •  LV.%d/%d", string.upper(stats.RoleTag or cDef.Rarity), lvl, PlanetConfig.MaxDroneLevel or 25)
 					spotRarityLbl.TextColor3 = rCol
+					local styleLine = (stats.ProjectileStyle == "StickyBomb")
+						and string.format("💣 %s Blast • Radius %d (Max %d)", PlanetConfig.FormatNumber(stats.BombBaseDamage), stats.BlastRadius, stats.MaxStickyBombs)
+						or string.format("🔨 %s Drill • ⚔️ %s DMG (%.2fs)", PlanetConfig.FormatNumber(stats.DrillPower), PlanetConfig.FormatNumber(stats.Damage), stats.FireCooldown)
 					spotDescLbl.Text = string.format(
-						"🔨 %s Drill Power  •  ⚔️ %s DMG (%.2fx/s)\n📈 %.2fx All-Yield  •  💎 %.2fx Star Gems",
-						PlanetConfig.FormatNumber(stats.DrillPower),
-						PlanetConfig.FormatNumber(stats.Damage),
-						stats.DrillSpeed,
-						stats.YieldMult,
-						stats.GemMult
+						"%s\n🎯 %d Studs • x%d Shots • 📈 %.2fx Yield",
+						styleLine,
+						stats.Range,
+						stats.ProjectilesPerShot,
+						stats.YieldMult
 					)
 
 					spotPrimaryBtn.Text = foundEntry.Equipped and "✓ EQUIPPED (UNEQUIP)" or "EQUIP DRONE"
@@ -3346,10 +3463,10 @@ do
 			end
 		end
 		if chosenPod then
-			local previewId = podCardPreviewDrones[podIdx] or "ScrapProbe"
+			local previewId = podCardPreviewDrones[podIdx] or "BasicDrone"
 			spotlightViewportModel, spotlightViewportCam = populateDroneViewport(spotlightViewport, previewId, podIdx == 4, 1)
 			spotTitleLbl.Text = chosenPod.Name:gsub("^[^%w]+", "")
-			spotRarityLbl.Text = string.format("TIER %d RESOURCE POD (NO GEMS REQUIRED)", podIdx)
+			spotRarityLbl.Text = string.format("TIER %d BASIC DRONE POD (NO GEMS)", podIdx)
 			spotRarityLbl.TextColor3 = chosenPod.Color
 			spotDescLbl.Text = chosenPod.Description .. "\nCost: " .. formatCost(chosenPod.Cost or {})
 			spotPrimaryBtn.Text = "ROLL 1x (" .. formatCost(chosenPod.Cost or {}) .. ")"
@@ -3605,13 +3722,200 @@ do
 end
 
 -- ============================================================================
+-- 7D. DIEP.IO FIRST-PATH DRONE EVOLUTION TREE (`BasicDrone` -> 5 Drones at Lv.5)
+-- ============================================================================
+local dronePathCardsUI: { [string]: { Card: Frame, EvolveBtn: TextButton, Badge: TextLabel } } = {}
+local dronePathHeaderLbl: TextLabel
+do
+	local pList = Instance.new("UIListLayout")
+	pList.Padding = UDim.new(0, 10)
+	pList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	pList.SortOrder = Enum.SortOrder.LayoutOrder
+	pList.Parent = dronePathPage
+
+	dronePathHeaderLbl = Instance.new("TextLabel")
+	dronePathHeaderLbl.LayoutOrder = 1
+	dronePathHeaderLbl.Size = UDim2.new(1, -16, 0, 26)
+	dronePathHeaderLbl.BackgroundTransparency = 1
+	dronePathHeaderLbl.Text = "🧬 DIEP.IO FIRST PATH • REACH LEVEL 5 TO EVOLVE YOUR BASIC DRONE!"
+	dronePathHeaderLbl.TextColor3 = Color3.fromRGB(128, 255, 115)
+	dronePathHeaderLbl.Font = Enum.Font.GothamBlack
+	dronePathHeaderLbl.TextSize = 13
+	dronePathHeaderLbl.TextXAlignment = Enum.TextXAlignment.Left
+	dronePathHeaderLbl.Parent = dronePathPage
+	addTextStroke(dronePathHeaderLbl, 1.5)
+
+	-- Starter Root Node: Basic Drone
+	local rootHolder = Instance.new("Frame")
+	rootHolder.LayoutOrder = 2
+	rootHolder.Size = UDim2.new(1, -16, 0, 88)
+	rootHolder.BackgroundTransparency = 1
+	rootHolder.Parent = dronePathPage
+
+	local basicDef = PlanetConfig.Companions.BasicDrone
+	local rootCard = Instance.new("Frame")
+	rootCard.Size = UDim2.new(0, 420, 0, 84)
+	rootCard.AnchorPoint = Vector2.new(0.5, 0)
+	rootCard.Position = UDim2.new(0.5, 0, 0, 2)
+	rootCard.BackgroundColor3 = Color3.fromRGB(18, 32, 66)
+	rootCard.Parent = rootHolder
+	addCorner(rootCard, 12)
+	addBorderStroke(rootCard, basicDef.Color, 2.2)
+
+	local rootVP = Instance.new("ViewportFrame")
+	rootVP.Size = UDim2.new(0, 68, 0, 68)
+	rootVP.Position = UDim2.new(0, 8, 0.5, -34)
+	rootVP.BackgroundColor3 = Color3.fromRGB(10, 16, 34)
+	rootVP.Parent = rootCard
+	addCorner(rootVP, 8)
+	populateDroneViewport(rootVP, "BasicDrone", false, 1)
+
+	local rootTitle = Instance.new("TextLabel")
+	rootTitle.Size = UDim2.new(1, -92, 0, 22)
+	rootTitle.Position = UDim2.new(0, 84, 0, 8)
+	rootTitle.BackgroundTransparency = 1
+	rootTitle.Text = "🛸 STARTER NODE: " .. string.upper(basicDef.Name) .. " (LV.1)"
+	rootTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+	rootTitle.Font = Enum.Font.GothamBlack
+	rootTitle.TextSize = 13
+	rootTitle.TextXAlignment = Enum.TextXAlignment.Left
+	rootTitle.Parent = rootCard
+	addTextStroke(rootTitle, 1.5)
+
+	local rootDesc = Instance.new("TextLabel")
+	rootDesc.Size = UDim2.new(1, -92, 0, 46)
+	rootDesc.Position = UDim2.new(0, 84, 0, 32)
+	rootDesc.BackgroundTransparency = 1
+	rootDesc.Text = basicDef.Description
+	rootDesc.TextColor3 = Color3.fromRGB(195, 220, 255)
+	rootDesc.Font = Enum.Font.GothamBold
+	rootDesc.TextSize = 11
+	rootDesc.TextWrapped = true
+	rootDesc.TextXAlignment = Enum.TextXAlignment.Left
+	rootDesc.Parent = rootCard
+
+	local branchHdr = Instance.new("TextLabel")
+	branchHdr.LayoutOrder = 3
+	branchHdr.Size = UDim2.new(1, -16, 0, 22)
+	branchHdr.BackgroundTransparency = 1
+	branchHdr.Text = "▼  LEVEL 5 FIRST-PATH CHOICES (EACH PATH WILL GROW ITS OWN TREE LATER!)  ▼"
+	branchHdr.TextColor3 = Color3.fromRGB(255, 232, 115)
+	branchHdr.Font = Enum.Font.GothamBlack
+	branchHdr.TextSize = 12
+	branchHdr.TextXAlignment = Enum.TextXAlignment.Center
+	branchHdr.Parent = dronePathPage
+	addTextStroke(branchHdr, 1.4)
+
+	local gridHolder = Instance.new("Frame")
+	gridHolder.LayoutOrder = 4
+	gridHolder.Size = UDim2.new(1, -12, 0, 140)
+	gridHolder.AutomaticSize = Enum.AutomaticSize.Y
+	gridHolder.BackgroundTransparency = 1
+	gridHolder.Parent = dronePathPage
+
+	local gl = Instance.new("UIGridLayout")
+	gl.CellSize = UDim2.new(0, 258, 0, 136)
+	gl.CellPadding = UDim2.new(0, 10, 0, 10)
+	gl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	gl.Parent = gridHolder
+
+	local firstPathIds = PlanetConfig.FirstPathDroneOrder or { "RapidPulse", "HeavyCannon", "LongRangeScout", "SpreadShot", "StickyBomber" }
+	for _, cId in ipairs(firstPathIds) do
+		local cDef = PlanetConfig.Companions[cId]
+		if cDef then
+			local card = Instance.new("Frame")
+			card.BackgroundColor3 = Color3.fromRGB(16, 26, 52)
+			card.Parent = gridHolder
+			addCorner(card, 12)
+			addBorderStroke(card, cDef.Color, 2.0)
+
+			local vp = Instance.new("ViewportFrame")
+			vp.Size = UDim2.new(0, 68, 0, 68)
+			vp.Position = UDim2.new(0, 8, 0, 8)
+			vp.BackgroundColor3 = Color3.fromRGB(10, 16, 34)
+			vp.Parent = card
+			addCorner(vp, 8)
+			populateDroneViewport(vp, cId, false, 1)
+
+			local badge = Instance.new("TextLabel")
+			badge.Size = UDim2.new(1, -86, 0, 15)
+			badge.Position = UDim2.new(0, 82, 0, 6)
+			badge.BackgroundTransparency = 1
+			badge.Text = cDef.RoleTag or cDef.Rarity
+			badge.TextColor3 = cDef.Color
+			badge.Font = Enum.Font.GothamBlack
+			badge.TextSize = 10
+			badge.TextXAlignment = Enum.TextXAlignment.Left
+			badge.Parent = card
+
+			local tLbl = Instance.new("TextLabel")
+			tLbl.Size = UDim2.new(1, -86, 0, 20)
+			tLbl.Position = UDim2.new(0, 82, 0, 21)
+			tLbl.BackgroundTransparency = 1
+			tLbl.Text = cDef.Icon .. " " .. cDef.Name
+			tLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+			tLbl.Font = Enum.Font.GothamBlack
+			tLbl.TextSize = 13
+			tLbl.TextXAlignment = Enum.TextXAlignment.Left
+			tLbl.TextTruncate = Enum.TextTruncate.AtEnd
+			tLbl.Parent = card
+			addTextStroke(tLbl, 1.5)
+
+			local descLbl = Instance.new("TextLabel")
+			descLbl.Size = UDim2.new(1, -86, 0, 36)
+			descLbl.Position = UDim2.new(0, 82, 0, 41)
+			descLbl.BackgroundTransparency = 1
+			descLbl.Text = cDef.Description
+			descLbl.TextColor3 = Color3.fromRGB(195, 214, 240)
+			descLbl.Font = Enum.Font.GothamMedium
+			descLbl.TextSize = 9
+			descLbl.TextWrapped = true
+			descLbl.TextXAlignment = Enum.TextXAlignment.Left
+			descLbl.Parent = card
+
+			local subTreeHint = Instance.new("TextLabel")
+			subTreeHint.Size = UDim2.new(1, -16, 0, 14)
+			subTreeHint.Position = UDim2.new(0, 8, 1, -50)
+			subTreeHint.BackgroundTransparency = 1
+			subTreeHint.Text = "↳ Further Drone Branch Tree: Coming Soon"
+			subTreeHint.TextColor3 = Color3.fromRGB(145, 175, 225)
+			subTreeHint.Font = Enum.Font.GothamBold
+			subTreeHint.TextSize = 9
+			subTreeHint.TextXAlignment = Enum.TextXAlignment.Left
+			subTreeHint.Parent = card
+
+			local evolveBtn = Instance.new("TextButton")
+			evolveBtn.Size = UDim2.new(1, -16, 0, 30)
+			evolveBtn.Position = UDim2.new(0, 8, 1, -34)
+			evolveBtn.BackgroundColor3 = Color3.fromRGB(72, 225, 58)
+			evolveBtn.Text = "🔒 UNLOCKS AT LV.5"
+			evolveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+			evolveBtn.Font = Enum.Font.GothamBlack
+			evolveBtn.TextSize = 11
+			evolveBtn.Parent = card
+			addCorner(evolveBtn, 7)
+			addBorderStroke(evolveBtn, Color3.fromRGB(10, 14, 24), 1.8)
+			addTextStroke(evolveBtn, 1.4)
+
+			local cidCopy = cId
+			evolveBtn.MouseButton1Click:Connect(function()
+				playSFX(sfxEvolve, 0.45)
+				EvolveDronePathEvent:FireServer(cidCopy)
+			end)
+
+			dronePathCardsUI[cId] = { Card = card, EvolveBtn = evolveBtn, Badge = badge }
+		end
+	end
+end
+
+-- ============================================================================
 -- 8. LEFT-SIDE 2x4 ILLUSTRATED BEVELED BUTTON GRID (Matching SHOP / LOCKER / QUESTS / DAILY / AFK / SETTINGS)
 -- ============================================================================
 local proximityPromptBtn = Instance.new("TextButton")
 proximityPromptBtn.Name = "MachineProximityPrompt"
 proximityPromptBtn.Size = UDim2.new(0, 440, 0, 42)
 proximityPromptBtn.AnchorPoint = Vector2.new(0.5, 1)
-proximityPromptBtn.Position = UDim2.new(0.5, 0, 1, -104)
+proximityPromptBtn.Position = UDim2.new(0.5, 0, 1, -152)
 proximityPromptBtn.BackgroundColor3 = Color3.fromRGB(24, 38, 76)
 proximityPromptBtn.Text = "[E] ACCESS TERMINAL"
 proximityPromptBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -3622,6 +3926,30 @@ proximityPromptBtn.Parent = inGameHUD
 addCorner(proximityPromptBtn, 10)
 local proxStroke = addBorderStroke(proximityPromptBtn, Color3.fromRGB(10, 14, 24), 2.8)
 addTextStroke(proximityPromptBtn, 1.8)
+
+-- Sticky Bomb Manual Detonate Button (Shows right above the 5 Drone Slots whenever bombs are planted!)
+local detonateBombsBtn = Instance.new("TextButton")
+detonateBombsBtn.Name = "DetonateStickyBombsButton"
+detonateBombsBtn.Size = UDim2.new(0, 290, 0, 40)
+detonateBombsBtn.AnchorPoint = Vector2.new(0.5, 1)
+detonateBombsBtn.Position = UDim2.new(0.5, 0, 1, -104)
+detonateBombsBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+detonateBombsBtn.Text = "💥 DETONATE ALL [R] (0 BOMBS)"
+detonateBombsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+detonateBombsBtn.Font = Enum.Font.GothamBlack
+detonateBombsBtn.TextSize = 14
+detonateBombsBtn.Visible = false
+detonateBombsBtn.ZIndex = 7
+detonateBombsBtn.Parent = inGameHUD
+addCorner(detonateBombsBtn, 11)
+addBorderStroke(detonateBombsBtn, Color3.fromRGB(14, 10, 10), 3.0)
+addGradient(detonateBombsBtn, Color3.fromRGB(255, 115, 38), Color3.fromRGB(215, 35, 35), 90)
+addTextStroke(detonateBombsBtn, 2.0)
+
+detonateBombsBtn.MouseButton1Click:Connect(function()
+	playSFX(sfxEvolve, 0.45)
+	DetonateStickyBombsEvent:FireServer()
+end)
 
 local nearestHubMachineId: string? = nil
 local nearestSpaceStationId: string? = nil
@@ -3987,134 +4315,135 @@ bottomLeftDock.Position = UDim2.new(0, 16, 0, 146)
 bottomLeftDock.BackgroundTransparency = 1
 bottomLeftDock.Parent = inGameHUD
 
-local dockGrid = Instance.new("UIGridLayout")
-dockGrid.CellSize = UDim2.new(0, 102, 0, 52)
-dockGrid.CellPadding = UDim2.new(0, 8, 0, 8)
-dockGrid.HorizontalAlignment = Enum.HorizontalAlignment.Left
-dockGrid.VerticalAlignment = Enum.VerticalAlignment.Top
-dockGrid.SortOrder = Enum.SortOrder.LayoutOrder
-dockGrid.Parent = bottomLeftDock
+do
+	local dockGrid = Instance.new("UIGridLayout")
+	dockGrid.CellSize = UDim2.new(0, 102, 0, 52)
+	dockGrid.CellPadding = UDim2.new(0, 8, 0, 8)
+	dockGrid.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	dockGrid.VerticalAlignment = Enum.VerticalAlignment.Top
+	dockGrid.SortOrder = Enum.SortOrder.LayoutOrder
+	dockGrid.Parent = bottomLeftDock
 
-local dockBtnOrder = 0
-local function makeSimulatorActionBtn(
-	fallbackEmoji: string,
-	imageAsset: string,
-	label: string,
-	accentC: Color3,
-	onClick: () -> ()
-)
-	dockBtnOrder += 1
-	local btn = Instance.new("TextButton")
-	btn.LayoutOrder = dockBtnOrder
-	btn.BackgroundColor3 = Color3.fromRGB(27, 45, 88)
-	btn.Text = ""
-	btn.Parent = bottomLeftDock
-	addCorner(btn, 12)
-	local bStroke = addBorderStroke(btn, Color3.fromRGB(8, 12, 22), 3.0)
-	addGradient(btn, Color3.fromRGB(44, 72, 136), Color3.fromRGB(24, 38, 76), 90)
+	local dockBtnOrder = 0
+	local function makeSimulatorActionBtn(
+		fallbackEmoji: string,
+		imageAsset: string,
+		label: string,
+		accentC: Color3,
+		onClick: () -> ()
+	)
+		dockBtnOrder += 1
+		local btn = Instance.new("TextButton")
+		btn.LayoutOrder = dockBtnOrder
+		btn.BackgroundColor3 = Color3.fromRGB(27, 45, 88)
+		btn.Text = ""
+		btn.Parent = bottomLeftDock
+		addCorner(btn, 12)
+		local bStroke = addBorderStroke(btn, Color3.fromRGB(8, 12, 22), 3.0)
+		addGradient(btn, Color3.fromRGB(44, 72, 136), Color3.fromRGB(24, 38, 76), 90)
 
-	local topGloss = Instance.new("Frame")
-	topGloss.Size = UDim2.new(1, -10, 0.42, 0)
-	topGloss.Position = UDim2.new(0, 5, 0, 3)
-	topGloss.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-	topGloss.BackgroundTransparency = 0.88
-	topGloss.BorderSizePixel = 0
-	topGloss.Parent = btn
-	addCorner(topGloss, 8)
+		local topGloss = Instance.new("Frame")
+		topGloss.Size = UDim2.new(1, -10, 0.42, 0)
+		topGloss.Position = UDim2.new(0, 5, 0, 3)
+		topGloss.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+		topGloss.BackgroundTransparency = 0.88
+		topGloss.BorderSizePixel = 0
+		topGloss.Parent = btn
+		addCorner(topGloss, 8)
 
-	-- Fallback emoji badge behind the AI-generated ImageLabel so both Studio & published clients look crisp
-	local emojiBg = Instance.new("TextLabel")
-	emojiBg.Size = UDim2.new(0, 36, 0, 36)
-	emojiBg.Position = UDim2.new(0, 5, 0.5, -18)
-	emojiBg.BackgroundTransparency = 1
-	emojiBg.Text = fallbackEmoji
-	emojiBg.TextSize = 22
-	emojiBg.Font = Enum.Font.GothamBlack
-	emojiBg.Parent = btn
+		local emojiBg = Instance.new("TextLabel")
+		emojiBg.Size = UDim2.new(0, 36, 0, 36)
+		emojiBg.Position = UDim2.new(0, 5, 0.5, -18)
+		emojiBg.BackgroundTransparency = 1
+		emojiBg.Text = fallbackEmoji
+		emojiBg.TextSize = 22
+		emojiBg.Font = Enum.Font.GothamBlack
+		emojiBg.Parent = btn
 
-	local iconImg = Instance.new("ImageLabel")
-	iconImg.Size = UDim2.new(0, 38, 0, 38)
-	iconImg.Position = UDim2.new(0, 4, 0.5, -19)
-	iconImg.BackgroundTransparency = 1
-	iconImg.Image = imageAsset
-	iconImg.ScaleType = Enum.ScaleType.Fit
-	iconImg.ZIndex = 2
-	iconImg.Parent = btn
-	addCorner(iconImg, 8)
+		local iconImg = Instance.new("ImageLabel")
+		iconImg.Size = UDim2.new(0, 38, 0, 38)
+		iconImg.Position = UDim2.new(0, 4, 0.5, -19)
+		iconImg.BackgroundTransparency = 1
+		iconImg.Image = imageAsset
+		iconImg.ScaleType = Enum.ScaleType.Fit
+		iconImg.ZIndex = 2
+		iconImg.Parent = btn
+		addCorner(iconImg, 8)
 
-	local lb = Instance.new("TextLabel")
-	lb.Size = UDim2.new(1, -46, 1, 0)
-	lb.Position = UDim2.new(0, 44, 0, 0)
-	lb.BackgroundTransparency = 1
-	lb.Text = label
-	lb.TextColor3 = Color3.fromRGB(255, 255, 255)
-	lb.Font = Enum.Font.GothamBlack
-	lb.TextSize = 11
-	lb.TextWrapped = true
-	lb.TextXAlignment = Enum.TextXAlignment.Left
-	lb.Parent = btn
-	addTextStroke(lb, 1.8)
+		local lb = Instance.new("TextLabel")
+		lb.Size = UDim2.new(1, -46, 1, 0)
+		lb.Position = UDim2.new(0, 44, 0, 0)
+		lb.BackgroundTransparency = 1
+		lb.Text = label
+		lb.TextColor3 = Color3.fromRGB(255, 255, 255)
+		lb.Font = Enum.Font.GothamBlack
+		lb.TextSize = 11
+		lb.TextWrapped = true
+		lb.TextXAlignment = Enum.TextXAlignment.Left
+		lb.Parent = btn
+		addTextStroke(lb, 1.8)
 
-	btn.MouseEnter:Connect(function()
-		playSFX(sfxHover, 0.08, 0.06)
-		bStroke.Color = accentC
+		btn.MouseEnter:Connect(function()
+			playSFX(sfxHover, 0.08, 0.06)
+			bStroke.Color = accentC
+		end)
+		btn.MouseLeave:Connect(function()
+			bStroke.Color = Color3.fromRGB(8, 12, 22)
+		end)
+		btn.MouseButton1Click:Connect(onClick)
+	end
+
+	makeSimulatorActionBtn("🛸", CUSTOM_UI_ICONS.Drones, "DRONES", Color3.fromRGB(88, 232, 44), function()
+		toggleTab("Drones", "DRONE SHOP")
 	end)
-	btn.MouseLeave:Connect(function()
-		bStroke.Color = Color3.fromRGB(8, 12, 22)
+
+	makeSimulatorActionBtn("🛒", CUSTOM_UI_ICONS.Shop, "SHOP", Color3.fromRGB(255, 205, 55), function()
+		toggleTab("PlanetValue", "PLANET UPGRADES")
 	end)
-	btn.MouseButton1Click:Connect(onClick)
+
+	makeSimulatorActionBtn("📜", CUSTOM_UI_ICONS.Quests, "QUESTS", Color3.fromRGB(255, 215, 75), function()
+		playSFX(sfxClick, 0.28)
+		topInfoPinned = not topInfoPinned
+		updateTopTelemetryVisibility()
+	end)
+
+	makeSimulatorActionBtn("🛰️", CUSTOM_UI_ICONS.Stations, "STATIONS", Color3.fromRGB(245, 105, 205), function()
+		toggleTab("WarpAscend", "STATIONS & WARP")
+	end)
+
+	makeSimulatorActionBtn("🧬", CUSTOM_UI_ICONS.Evolve, "EVOLVE", Color3.fromRGB(190, 110, 255), function()
+		toggleTab("Evolution", "EVOLUTION TREE")
+	end)
+
+	makeSimulatorActionBtn("🎨", CUSTOM_UI_ICONS.Customize, "CUSTOMIZE", Color3.fromRGB(110, 215, 255), function()
+		playSFX(sfxClick, 0.28)
+		modalFrame.Visible = false
+		activeTab = nil
+		isCustomizingOverlayOpen = true
+		switchMainMenuTab("Customize")
+		refreshUI()
+	end)
+
+	makeSimulatorActionBtn("🧬", CUSTOM_UI_ICONS.Evolve, "CLASS PATH", Color3.fromRGB(108, 248, 56), function()
+		toggleTab("DronePath", "DIEP.IO DRONE PATH")
+	end)
+
+	makeSimulatorActionBtn("🌀", CUSTOM_UI_ICONS.Stations, "HUB WARP", Color3.fromRGB(120, 245, 205), function()
+		playSFX(sfxLaunch, 0.35)
+		localPlanetPos = HUB_SPAWN_POS
+		localVelocity = Vector3.zero
+		TeleportToHubEvent:FireServer()
+	end)
 end
-
-makeSimulatorActionBtn("🛸", CUSTOM_UI_ICONS.Drones, "DRONES", Color3.fromRGB(88, 232, 44), function()
-	toggleTab("Drones", "DRONE SHOP")
-end)
-
-makeSimulatorActionBtn("🛒", CUSTOM_UI_ICONS.Shop, "SHOP", Color3.fromRGB(255, 205, 55), function()
-	toggleTab("PlanetValue", "PLANET UPGRADES")
-end)
-
-makeSimulatorActionBtn("📜", CUSTOM_UI_ICONS.Quests, "QUESTS", Color3.fromRGB(255, 215, 75), function()
-	playSFX(sfxClick, 0.28)
-	topInfoPinned = not topInfoPinned
-	updateTopTelemetryVisibility()
-end)
-
-makeSimulatorActionBtn("🛰️", CUSTOM_UI_ICONS.Stations, "STATIONS", Color3.fromRGB(245, 105, 205), function()
-	toggleTab("WarpAscend", "STATIONS & WARP")
-end)
-
-makeSimulatorActionBtn("🧬", CUSTOM_UI_ICONS.Evolve, "EVOLVE", Color3.fromRGB(190, 110, 255), function()
-	toggleTab("Evolution", "EVOLUTION TREE")
-end)
-
-makeSimulatorActionBtn("🎨", CUSTOM_UI_ICONS.Customize, "CUSTOMIZE", Color3.fromRGB(110, 215, 255), function()
-	playSFX(sfxClick, 0.28)
-	modalFrame.Visible = false
-	activeTab = nil
-	isCustomizingOverlayOpen = true
-	switchMainMenuTab("Customize")
-	refreshUI()
-end)
-
-makeSimulatorActionBtn("⚙️", CUSTOM_UI_ICONS.Shop, "MACHINES", Color3.fromRGB(95, 240, 165), function()
-	openMachineModal(nil)
-end)
-
-makeSimulatorActionBtn("🌀", CUSTOM_UI_ICONS.Stations, "HUB WARP", Color3.fromRGB(120, 245, 205), function()
-	playSFX(sfxLaunch, 0.35)
-	localPlanetPos = HUB_SPAWN_POS
-	localVelocity = Vector3.zero
-	TeleportToHubEvent:FireServer()
-end)
 
 -- ============================================================================
 -- 9. EVOLUTION TREE & 6-TRACK PLANET UPGRADES PAGES
 -- ============================================================================
 local evoNodeButtons: { [string]: { Button: TextButton, Stroke: UIStroke } } = {}
-
-local evoList = Instance.new("UIListLayout")
-evoList.Padding = UDim.new(0, 10)
-evoList.Parent = evolutionPage
+do
+	local evoList = Instance.new("UIListLayout")
+	evoList.Padding = UDim.new(0, 10)
+	evoList.Parent = evolutionPage
 
 for _, bInfo in ipairs(SpeciesConfig.BranchOrder) do
 	local branchRow = Instance.new("Frame")
@@ -4215,15 +4544,16 @@ for _, bInfo in ipairs(SpeciesConfig.BranchOrder) do
 		evoNodeButtons[node.Id] = { Button = nBtn, Stroke = nStroke }
 	end
 end
+end
 
 -- Planet Value Upgrades Grid (6 Upgrade Tracks with +1 Level & BUY MAX!)
-local upgGrid = Instance.new("UIGridLayout")
-upgGrid.CellSize = UDim2.new(0, 405, 0, 152)
-upgGrid.CellPadding = UDim2.new(0, 12, 0, 12)
-upgGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
-upgGrid.Parent = planetValuePage
-
 local upgradeCardsUI: { [string]: { LevelLabel: TextLabel, CostLabel: TextLabel, BuyOneBtn: TextButton, BuyMaxBtn: TextButton } } = {}
+do
+	local upgGrid = Instance.new("UIGridLayout")
+	upgGrid.CellSize = UDim2.new(0, 405, 0, 152)
+	upgGrid.CellPadding = UDim2.new(0, 12, 0, 12)
+	upgGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	upgGrid.Parent = planetValuePage
 
 for _, upg in ipairs(PlanetConfig.PlanetUpgrades) do
 	local card = Instance.new("Frame")
@@ -4311,11 +4641,24 @@ for _, upg in ipairs(PlanetConfig.PlanetUpgrades) do
 
 	upgradeCardsUI[upg.Id] = { LevelLabel = lvlLbl, CostLabel = costLbl, BuyOneBtn = buyBtn, BuyMaxBtn = buyMaxBtn }
 end
+end
 
 -- ============================================================================
--- 9B. 3D ORBITING & TARGET-SEEKING DRONES + 3D LASER BEAM FX MANAGER
+-- 9B. PER-DRONE ORBIT, LONG-RANGE SCOUT FLIGHT, STICKY BOMBS & PROJECTILE VFX
 -- ============================================================================
-local activeDroneModels: { { Model: Model, Phase: number, DroneId: string, BeamColor: Color3, CurrentPos: Vector3 } } = {}
+type ActiveDroneEntry = {
+	Model: Model,
+	Uid: string,
+	Phase: number,
+	DroneId: string,
+	BeamColor: Color3,
+	CurrentPos: Vector3,
+	FireTimer: number,
+	RecoilOffset: Vector3,
+	Stats: any,
+}
+
+local activeDroneModels: { ActiveDroneEntry } = {}
 local lastDroneSignature = ""
 local activeDroneTarget: Model? = nil
 
@@ -4326,6 +4669,36 @@ end
 beamFXFolder = Instance.new("Folder")
 beamFXFolder.Name = "ClientDroneBeamFX"
 beamFXFolder.Parent = Workspace
+
+local stickyBombsFolder = Workspace:FindFirstChild("ClientStickyBombs")
+if stickyBombsFolder then
+	stickyBombsFolder:Destroy()
+end
+stickyBombsFolder = Instance.new("Folder")
+stickyBombsFolder.Name = "ClientStickyBombs"
+stickyBombsFolder.Parent = Workspace
+
+type ClientBombEntry = {
+	Model: Model,
+	OwnerUserId: number,
+	TargetModel: Model?,
+	TargetRoot: BasePart?,
+	LocalOffset: Vector3,
+	WorldPos: Vector3,
+	Color: Color3,
+	PlacedAt: number,
+}
+local activeStickyBombs: { [string]: ClientBombEntry } = {}
+
+local function countLocalStickyBombs(): number
+	local c = 0
+	for _, b in pairs(activeStickyBombs) do
+		if b.OwnerUserId == localPlayer.UserId then
+			c += 1
+		end
+	end
+	return c
+end
 
 local function rebuildOrbitingDrones()
 	local owned = currentState.Companions or currentState.OwnedCompanions or {}
@@ -4343,7 +4716,11 @@ local function rebuildOrbitingDrones()
 	end
 	lastDroneSignature = sig
 
+	local prevPositions: { [string]: Vector3 } = {}
 	for _, d in ipairs(activeDroneModels) do
+		if d.Uid then
+			prevPositions[d.Uid] = d.CurrentPos
+		end
 		if d.Model then
 			d.Model:Destroy()
 		end
@@ -4361,27 +4738,34 @@ local function rebuildOrbitingDrones()
 			local isGold = (entry.IsGolden == true) or (entry.Golden == true)
 			local lvl = entry.Level or 1
 			local cDef = PlanetConfig.Companions[entry.Id]
+			local dStats = PlanetConfig.GetDroneStats(entry.Id, lvl, isGold)
 			local dm = PlanetGenerator.BuildCompanionDroneModel(entry.Id, isGold, lvl)
 			dm.Parent = Workspace
+			local uid = tostring(entry.Uid)
 			table.insert(activeDroneModels, {
 				Model = dm,
+				Uid = uid,
 				Phase = idx * ((math.pi * 2) / math.max(1, #sigParts - 1)),
 				DroneId = entry.Id,
 				BeamColor = (cDef and cDef.BeamColor) or Color3.fromRGB(85, 225, 255),
-				CurrentPos = localPlanetPos + Vector3.new(0, 12, 0),
+				CurrentPos = prevPositions[uid] or (localPlanetPos + Vector3.new(0, 12, 0)),
+				FireTimer = dStats.FireCooldown,
+				RecoilOffset = Vector3.zero,
+				Stats = dStats,
 			})
 		end
 	end
 end
 
-local function spawnLaserBeamSegment(fromPos: Vector3, toPos: Vector3, beamColor: Color3, thickness: number?)
+local function spawnLaserBeamSegment(fromPos: Vector3, toPos: Vector3, beamColor: Color3, thickness: number?, fadeTime: number?)
 	local diff = toPos - fromPos
 	local dist = diff.Magnitude
-	if dist < 0.5 or dist > 450 then
+	if dist < 0.5 or dist > 1100 then
 		return
 	end
 	local mid = fromPos + diff * 0.5
 	local bWidth = thickness or 0.55
+	local dur = fadeTime or 0.20
 
 	local beamPart = Instance.new("Part")
 	beamPart.Name = "DroneLaserBeam"
@@ -4391,23 +4775,241 @@ local function spawnLaserBeamSegment(fromPos: Vector3, toPos: Vector3, beamColor
 	beamPart.CastShadow = false
 	beamPart.Material = Enum.Material.Neon
 	beamPart.Color = beamColor
-	beamPart.Transparency = 0.08
+	beamPart.Transparency = 0.06
 	beamPart.Size = Vector3.new(dist, bWidth, bWidth)
 	beamPart.CFrame = CFrame.lookAt(mid, toPos) * CFrame.Angles(0, math.rad(90), 0)
 	beamPart.Parent = beamFXFolder
 
-	TweenService:Create(beamPart, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+	TweenService:Create(beamPart, TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		Transparency = 1,
-		Size = Vector3.new(dist, bWidth * 0.15, bWidth * 0.15),
+		Size = Vector3.new(dist, bWidth * 0.14, bWidth * 0.14),
 	}):Play()
-	task.delay(0.24, function()
+	task.delay(dur + 0.03, function()
 		if beamPart and beamPart.Parent then
 			beamPart:Destroy()
 		end
 	end)
 end
 
-DroneBeamFXEvent.OnClientEvent:Connect(function(shooterUserId: number, targetModel: Model?, totalDamage: number, destroyed: boolean, hitPosArg: Vector3?)
+local function spawnHitImpactFX(pos: Vector3, color: Color3, size: number, textStr: string?, textCol: Color3?, duration: number?)
+	if (pos - localPlanetPos).Magnitude > 950 then
+		return
+	end
+	local spark = Instance.new("Part")
+	spark.Name = "LaserHitSpark"
+	spark.Shape = Enum.PartType.Ball
+	spark.Anchored = true
+	spark.CanCollide = false
+	spark.CastShadow = false
+	spark.Material = Enum.Material.Neon
+	spark.Color = color
+	spark.Transparency = 0.15
+	spark.Size = Vector3.new(size, size, size)
+	spark.CFrame = CFrame.new(pos)
+	spark.Parent = beamFXFolder
+
+	local dur = duration or 0.34
+	if textStr and #textStr > 0 then
+		local bb = Instance.new("BillboardGui")
+		bb.Size = UDim2.fromOffset(110, 28)
+		bb.StudsOffset = Vector3.new(0, 4.5, 0)
+		bb.AlwaysOnTop = true
+		bb.MaxDistance = 420
+		bb.Adornee = spark
+		bb.Parent = spark
+
+		local dmgLbl = Instance.new("TextLabel")
+		dmgLbl.Size = UDim2.fromScale(1, 1)
+		dmgLbl.BackgroundTransparency = 1
+		dmgLbl.Text = textStr
+		dmgLbl.TextColor3 = textCol or Color3.fromRGB(255, 255, 255)
+		dmgLbl.Font = Enum.Font.GothamBlack
+		dmgLbl.TextSize = 13
+		dmgLbl.Parent = bb
+		addTextStroke(dmgLbl, 1.2)
+
+		TweenService:Create(bb, TweenInfo.new(dur + 0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			StudsOffset = Vector3.new(0, 10, 0),
+		}):Play()
+	end
+
+	TweenService:Create(spark, TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Transparency = 1,
+		Size = Vector3.new(size * 2.3, size * 2.3, size * 2.3),
+	}):Play()
+	task.delay(dur + 0.08, function()
+		if spark and spark.Parent then
+			spark:Destroy()
+		end
+	end)
+end
+
+local function spawnVoxelBlastFX(center: Vector3, radius: number, color: Color3, dmg: number?)
+	if (center - localPlanetPos).Magnitude > 950 then
+		return
+	end
+	local dmgTxt = (dmg and dmg > 0) and ("💥 -" .. PlanetConfig.FormatNumber(dmg)) or nil
+	spawnHitImpactFX(center, color, math.clamp(radius * 0.48, 8, 22), dmgTxt, Color3.fromRGB(255, 215, 75), 0.45)
+
+	-- Burst of glowing voxel cube debris
+	for k = 1, 7 do
+		local dir = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5)
+		if dir.Magnitude < 0.05 then
+			dir = Vector3.new(0, 1, 0)
+		else
+			dir = dir.Unit
+		end
+		local cube = Instance.new("Part")
+		cube.Shape = Enum.PartType.Block
+		cube.Anchored = true
+		cube.CanCollide = false
+		cube.CastShadow = false
+		cube.Material = (k % 2 == 0) and Enum.Material.Neon or Enum.Material.SmoothPlastic
+		cube.Color = (k % 2 == 0) and color or Color3.fromRGB(255, 195, 55)
+		local sz = 1.6 + math.random() * 1.4
+		cube.Size = Vector3.new(sz, sz, sz)
+		cube.CFrame = CFrame.new(center) * CFrame.Angles(math.random() * 3, math.random() * 3, 0)
+		cube.Parent = beamFXFolder
+
+		local endCF = CFrame.new(center + dir * math.clamp(radius * 0.72, 10, 32)) * CFrame.Angles(math.random() * 6, math.random() * 6, 0)
+		TweenService:Create(cube, TweenInfo.new(0.42, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			CFrame = endCF,
+			Transparency = 1,
+			Size = Vector3.new(0.2, 0.2, 0.2),
+		}):Play()
+		task.delay(0.45, function()
+			if cube and cube.Parent then
+				cube:Destroy()
+			end
+		end)
+	end
+end
+
+local function findActiveDroneByUid(uid: string?): ActiveDroneEntry?
+	if uid then
+		for _, dInfo in ipairs(activeDroneModels) do
+			if dInfo.Uid == uid and dInfo.Model and dInfo.Model.Parent then
+				return dInfo
+			end
+		end
+	end
+	return activeDroneModels[1]
+end
+
+local function getDroneMuzzlePos(dInfo: ActiveDroneEntry?): Vector3
+	if not dInfo or not dInfo.Model or not dInfo.Model.Parent then
+		return localPlanetPos
+	end
+	local root = dInfo.Model.PrimaryPart
+	local muzzle = root and root:FindFirstChild("BeamMuzzle") :: Attachment?
+	return (muzzle and muzzle.WorldPosition) or dInfo.Model:GetPivot().Position
+end
+
+StickyBombFXEvent.OnClientEvent:Connect(function(action: string, ownerUserId: number, payload: any)
+	if action == "ClearPlayer" then
+		for bId, bEntry in pairs(activeStickyBombs) do
+			if bEntry.OwnerUserId == ownerUserId then
+				if bEntry.Model and bEntry.Model.Parent then
+					bEntry.Model:Destroy()
+				end
+				activeStickyBombs[bId] = nil
+			end
+		end
+		return
+	elseif action == "RemoveByTarget" then
+		local targetModel = payload
+		for bId, bEntry in pairs(activeStickyBombs) do
+			if bEntry.TargetModel == targetModel then
+				if bEntry.Model and bEntry.Model.Parent then
+					bEntry.Model:Destroy()
+				end
+				activeStickyBombs[bId] = nil
+			end
+		end
+		return
+	elseif action == "Remove" and type(payload) == "table" and payload.BombId then
+		local entry = activeStickyBombs[payload.BombId]
+		if entry then
+			if entry.Model and entry.Model.Parent then
+				entry.Model:Destroy()
+			end
+			activeStickyBombs[payload.BombId] = nil
+		end
+		return
+	elseif action == "DetonateAll" then
+		for bId, bEntry in pairs(activeStickyBombs) do
+			if bEntry.OwnerUserId == ownerUserId then
+				if bEntry.Model and bEntry.Model.Parent then
+					bEntry.Model:Destroy()
+				end
+				activeStickyBombs[bId] = nil
+			end
+		end
+		if type(payload) == "table" then
+			playSFX(sfxEvolve, 0.42, 0.14)
+			for _, blast in ipairs(payload) do
+				if typeof(blast.Pos) == "Vector3" then
+					spawnVoxelBlastFX(blast.Pos, blast.Radius or 32, blast.Color or Color3.fromRGB(255, 95, 45), blast.Damage)
+				end
+			end
+		end
+		return
+	elseif action == "Attach" and type(payload) == "table" and payload.BombId then
+		local bColor = payload.Color or Color3.fromRGB(255, 85, 45)
+		local bScale = payload.Scale or 1.0
+		local destPos = payload.WorldPos or localPlanetPos
+
+		local startPos = destPos
+		if ownerUserId == localPlayer.UserId then
+			local shooter = findActiveDroneByUid(payload.DroneUid)
+			startPos = getDroneMuzzlePos(shooter)
+		end
+
+		local bombModel = PlanetGenerator.BuildStickyBombModel(bColor, bScale)
+		bombModel.Parent = stickyBombsFolder
+		local rotCF = CFrame.Angles(math.random() * 0.6, math.random() * 6.28, math.random() * 0.6)
+		bombModel:PivotTo(CFrame.new(startPos) * rotCF)
+
+		local entry: ClientBombEntry = {
+			Model = bombModel,
+			OwnerUserId = ownerUserId,
+			TargetModel = payload.TargetModel,
+			TargetRoot = payload.TargetRoot,
+			LocalOffset = payload.LocalOffset or Vector3.zero,
+			WorldPos = destPos,
+			Color = bColor,
+			PlacedAt = os.clock(),
+		}
+		activeStickyBombs[payload.BombId] = entry
+
+		-- Smooth fast 0.14s visual lob from drone barrel to stick point
+		local lobSteps = 6
+		task.spawn(function()
+			for step = 1, lobSteps do
+				if not bombModel.Parent or activeStickyBombs[payload.BombId] ~= entry then
+					return
+				end
+				local alpha = step / lobSteps
+				local liveDest = destPos
+				if entry.TargetRoot and entry.TargetRoot.Parent and entry.TargetRoot:GetAttribute("Available") ~= false then
+					liveDest = entry.TargetRoot.CFrame:PointToWorldSpace(entry.LocalOffset)
+				end
+				local p = startPos:Lerp(liveDest, alpha) + Vector3.new(0, math.sin(alpha * math.pi) * 3.5, 0)
+				bombModel:PivotTo(CFrame.new(p) * rotCF)
+				task.wait(0.022)
+			end
+		end)
+	end
+end)
+
+DroneBeamFXEvent.OnClientEvent:Connect(function(
+	shooterUserId: number,
+	targetModel: Model?,
+	totalDamage: number,
+	destroyed: boolean,
+	hitPosArg: Vector3?,
+	fxData: any?
+)
 	local targetPos = hitPosArg
 	if not targetPos and targetModel and targetModel.Parent then
 		targetPos = targetModel:GetPivot().Position
@@ -4416,6 +5018,9 @@ DroneBeamFXEvent.OnClientEvent:Connect(function(shooterUserId: number, targetMod
 		return
 	end
 
+	local style = (type(fxData) == "table" and fxData.Style) or "Standard"
+	local beamColor = (type(fxData) == "table" and fxData.BeamColor) or Color3.fromRGB(115, 235, 255)
+
 	if shooterUserId == localPlayer.UserId then
 		if targetModel and targetModel.Parent and not destroyed then
 			activeDroneTarget = targetModel
@@ -4423,71 +5028,46 @@ DroneBeamFXEvent.OnClientEvent:Connect(function(shooterUserId: number, targetMod
 			activeDroneTarget = nil
 		end
 
-		for _, dInfo in ipairs(activeDroneModels) do
-			if dInfo.Model and dInfo.Model.Parent then
-				local root = dInfo.Model.PrimaryPart
-				local muzzle = root and root:FindFirstChild("BeamMuzzle") :: Attachment?
-				local startPos = muzzle and muzzle.WorldPosition or dInfo.Model:GetPivot().Position
-				spawnLaserBeamSegment(startPos, targetPos, dInfo.BeamColor, 0.58)
+		local dInfo = findActiveDroneByUid(type(fxData) == "table" and fxData.DroneUid or nil)
+		local startPos = getDroneMuzzlePos(dInfo)
+		local c = (type(fxData) == "table" and fxData.BeamColor) or (dInfo and dInfo.BeamColor) or beamColor
+
+		if style == "SpreadPellet" and type(fxData) == "table" and type(fxData.PelletHits) == "table" then
+			for _, pt in ipairs(fxData.PelletHits) do
+				if typeof(pt) == "Vector3" then
+					spawnLaserBeamSegment(startPos, pt, c, 0.36, 0.16)
+				end
 			end
+		elseif style == "HeavySlug" then
+			spawnLaserBeamSegment(startPos, targetPos, c, 1.55, 0.30)
+			if type(fxData) == "table" and (fxData.BlastRadius or 0) > 0 then
+				spawnVoxelBlastFX(targetPos, math.min(22, fxData.BlastRadius), c, nil)
+			end
+		elseif style == "SniperBeam" then
+			spawnLaserBeamSegment(startPos, targetPos, c, 0.42, 0.32)
+		elseif style == "RapidBolt" then
+			spawnLaserBeamSegment(startPos, targetPos, c, 0.32, 0.12)
+		else
+			spawnLaserBeamSegment(startPos, targetPos, c, 0.58, 0.20)
 		end
 	else
 		local pFolder = Workspace:FindFirstChild("PlayerPlanets")
 		if pFolder then
 			for _, pm in ipairs(pFolder:GetChildren()) do
 				if pm:IsA("Model") and pm:GetAttribute("OwnerUserId") == shooterUserId then
-					spawnLaserBeamSegment(pm:GetPivot().Position, targetPos, Color3.fromRGB(255, 115, 95), 0.65)
+					spawnLaserBeamSegment(pm:GetPivot().Position, targetPos, Color3.fromRGB(255, 115, 95), 0.65, 0.20)
 					break
 				end
 			end
 		end
 	end
 
-	-- Impact Spark & Floating Damage Callout
-	if (targetPos - localPlanetPos).Magnitude <= 280 then
-		local spark = Instance.new("Part")
-		spark.Name = "LaserHitSpark"
-		spark.Shape = Enum.PartType.Ball
-		spark.Anchored = true
-		spark.CanCollide = false
-		spark.CastShadow = false
-		spark.Material = Enum.Material.Neon
-		spark.Color = destroyed and Color3.fromRGB(255, 215, 75) or Color3.fromRGB(115, 235, 255)
-		local initSz = destroyed and 5.5 or 2.8
-		spark.Size = Vector3.new(initSz, initSz, initSz)
-		spark.CFrame = CFrame.new(targetPos)
-		spark.Parent = beamFXFolder
-
-		local bb = Instance.new("BillboardGui")
-		bb.Size = UDim2.fromOffset(96, 26)
-		bb.StudsOffset = Vector3.new(0, 4.5, 0)
-		bb.AlwaysOnTop = true
-		bb.MaxDistance = 220
-		bb.Adornee = spark
-		bb.Parent = spark
-
-		local dmgLbl = Instance.new("TextLabel")
-		dmgLbl.Size = UDim2.fromScale(1, 1)
-		dmgLbl.BackgroundTransparency = 1
-		dmgLbl.Text = (destroyed and "💥 -" or "-") .. PlanetConfig.FormatNumber(totalDamage)
-		dmgLbl.TextColor3 = destroyed and Color3.fromRGB(255, 225, 85) or Color3.fromRGB(125, 240, 255)
-		dmgLbl.Font = Enum.Font.GothamBlack
-		dmgLbl.TextSize = destroyed and 14 or 12
-		dmgLbl.Parent = bb
-		addTextStroke(dmgLbl, 1.0)
-
-		TweenService:Create(spark, TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			Transparency = 1,
-			Size = Vector3.new(initSz * 2.1, initSz * 2.1, initSz * 2.1),
-		}):Play()
-		TweenService:Create(bb, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			StudsOffset = Vector3.new(0, 8.5, 0),
-		}):Play()
-		task.delay(0.36, function()
-			if spark and spark.Parent then
-				spark:Destroy()
-			end
-		end)
+	-- Impact Spark & Floating Damage Callout (visible even for Long-Range Sniper hits!)
+	if totalDamage and totalDamage > 0 then
+		local initSz = destroyed and 6.0 or ((style == "HeavySlug") and 5.2 or 2.8)
+		local col = destroyed and Color3.fromRGB(255, 215, 75) or beamColor
+		local txt = (destroyed and "💥 -" or "-") .. PlanetConfig.FormatNumber(totalDamage)
+		spawnHitImpactFX(targetPos, col, initSz, txt, col, 0.32)
 	end
 end)
 
@@ -4632,11 +5212,13 @@ refreshUI = function()
 	local xpRatio = math.clamp(curXP / math.max(1, reqXP), 0, 1)
 
 	levelXPBarFill.Size = UDim2.new(xpRatio, 0, 1, 0)
+	local pathHint = (playerLvl < (PlanetConfig.DronePathUnlockLevels.Tier1 or 5)) and "  •  Path @ Lv.5" or ""
 	levelXPBarText.Text = string.format(
-		"⭐ LEVEL %d  •  %s / %s XP",
+		"⭐ LEVEL %d  •  %s / %s XP%s",
 		playerLvl,
 		PlanetConfig.FormatNumber(curXP),
-		PlanetConfig.FormatNumber(reqXP)
+		PlanetConfig.FormatNumber(reqXP),
+		pathHint
 	)
 	topLeftLevelXPLbl.Text = string.format(
 		"⭐ LV.%d  •  %s / %s XP",
@@ -5174,22 +5756,189 @@ refreshUI = function()
 			end
 		end
 	end
+
+	-- Update Sticky Bomb Detonate HUD Button
+	local bombCount = math.max(currentState.StickyBombCount or 0, countLocalStickyBombs())
+	if bombCount > 0 then
+		detonateBombsBtn.Visible = true
+		local comboPct = math.min(120, (bombCount - 1) * 8)
+		detonateBombsBtn.Text = (comboPct > 0)
+			and string.format("💥 DETONATE [R] (%d BOMBS • +%d%%)", bombCount, comboPct)
+			or string.format("💥 DETONATE [R] (%d BOMB)", bombCount)
+	else
+		detonateBombsBtn.Visible = false
+	end
+
+	-- Update Diep.io First-Path Tree Tab (`dronePathCardsUI`)
+	do
+		local unlockTier1Lv = (PlanetConfig.DronePathUnlockLevels and PlanetConfig.DronePathUnlockLevels.Tier1) or 5
+		local basicDroneToEvolve: any = nil
+		local ownedClasses: { [string]: boolean } = {}
+		for _, entry in ipairs(ownedDrones) do
+			ownedClasses[entry.Id] = true
+			if entry.Id == "BasicDrone" and not basicDroneToEvolve then
+				basicDroneToEvolve = entry
+			end
+		end
+
+		local pathClassId = currentState.DronePathClassId or "BasicDrone"
+		local pathDef = PlanetConfig.Companions[pathClassId] or PlanetConfig.Companions.BasicDrone
+		if dronePathHeaderLbl then
+			dronePathHeaderLbl.Text = string.format(
+				"🧬 DIEP.IO FIRST PATH: %s (%s) • LEVEL %d  •  Unlocks @ Lv.%d!",
+				string.upper(pathDef.Name),
+				pathDef.RoleTag or "STARTER",
+				playerLvl,
+				unlockTier1Lv
+			)
+		end
+
+		for cId, pUI in pairs(dronePathCardsUI) do
+			local cDef = PlanetConfig.Companions[cId]
+			if cDef then
+				local reqLv = cDef.UnlockLevel or unlockTier1Lv
+				local unlocked = playerLvl >= reqLv
+				if not unlocked then
+					pUI.EvolveBtn.Text = "🔒 REACH LV." .. tostring(reqLv)
+					pUI.EvolveBtn.BackgroundColor3 = Color3.fromRGB(52, 60, 88)
+				elseif basicDroneToEvolve ~= nil then
+					pUI.EvolveBtn.Text = "🧬 CHOOSE THIS PATH"
+					pUI.EvolveBtn.BackgroundColor3 = Color3.fromRGB(78, 228, 52)
+				elseif pathClassId == cId or ownedClasses[cId] then
+					pUI.EvolveBtn.Text = "✓ CHOSEN IN FLEET"
+					pUI.EvolveBtn.BackgroundColor3 = Color3.fromRGB(48, 165, 195)
+				else
+					pUI.EvolveBtn.Text = "BUILD BASIC DRONE FIRST"
+					pUI.EvolveBtn.BackgroundColor3 = Color3.fromRGB(48, 58, 92)
+				end
+			end
+		end
+	end
+
+	-- Update Top-Center Live Diep.io Evolution Banner
+	if updateDiepEvoBanner then
+		updateDiepEvoBanner()
+	end
+end
+
+updateDiepEvoBanner = function()
+	local playerLvl = currentState.Level or 1
+	local unlockTier1Lv = (PlanetConfig.DronePathUnlockLevels and PlanetConfig.DronePathUnlockLevels.Tier1) or 5
+	local equippedBasicEntry: any = nil
+	for _, entry in ipairs(currentState.Companions or {}) do
+		if entry.Equipped and entry.Id == "BasicDrone" then
+			equippedBasicEntry = entry
+			break
+		end
+	end
+
+	local choices = (equippedBasicEntry and playerLvl >= unlockTier1Lv)
+		and PlanetConfig.GetDroneEvolutionChoices("BasicDrone", playerLvl)
+		or {}
+
+	if (#choices == 0) or is2DMenuActive() or modalFrame.Visible then
+		diepEvoPanel.Visible = false
+		diepToggleBtn.Visible = false
+		return
+	end
+
+	if isDiepBannerMinimized then
+		diepEvoPanel.Visible = false
+		diepToggleBtn.Visible = true
+		diepToggleBtn.Text = string.format("🧬 BASIC DRONE UPGRADE READY! (%d)", #choices)
+		return
+	end
+
+	diepToggleBtn.Visible = false
+	diepEvoPanel.Visible = true
+	local basicUid = tostring(equippedBasicEntry.Uid)
+	local sig = basicUid .. ":" .. table.concat(choices, ",")
+	if sig == lastDiepSig then
+		return
+	end
+	lastDiepSig = sig
+
+	for _, ch in ipairs(diepCardsRow:GetChildren()) do
+		if ch:IsA("GuiObject") then
+			ch:Destroy()
+		end
+	end
+
+	local cardWidth = math.clamp(math.floor(590 / math.max(1, #choices)) - 8, 110, 240)
+	diepEvoPanel.Size = UDim2.new(0, math.max(360, (#choices * (cardWidth + 8)) + 22), 0, 142)
+
+	for _, nextId in ipairs(choices) do
+		local cDef = PlanetConfig.Companions[nextId]
+		if cDef then
+			local cardBtn = Instance.new("TextButton")
+			cardBtn.Size = UDim2.new(0, cardWidth, 1, -4)
+			cardBtn.BackgroundColor3 = Color3.fromRGB(16, 26, 54)
+			cardBtn.Text = ""
+			cardBtn.AutoButtonColor = false
+			cardBtn.ZIndex = 9
+			cardBtn.Parent = diepCardsRow
+			addCorner(cardBtn, 10)
+			addBorderStroke(cardBtn, cDef.Color, 2.2)
+
+			local vp = Instance.new("ViewportFrame")
+			vp.Size = UDim2.new(1, -12, 0, 58)
+			vp.Position = UDim2.new(0, 6, 0, 4)
+			vp.BackgroundTransparency = 1
+			vp.ZIndex = 10
+			vp.Parent = cardBtn
+			populateDroneViewport(vp, nextId, false, 1)
+
+			local nameLbl = Instance.new("TextLabel")
+			nameLbl.Size = UDim2.new(1, -8, 0, 18)
+			nameLbl.Position = UDim2.new(0, 4, 0, 64)
+			nameLbl.BackgroundTransparency = 1
+			nameLbl.Text = cDef.Icon .. " " .. cDef.Name
+			nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+			nameLbl.Font = Enum.Font.GothamBlack
+			nameLbl.TextSize = 11
+			nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+			nameLbl.ZIndex = 10
+			nameLbl.Parent = cardBtn
+			addTextStroke(nameLbl, 1.4)
+
+			local roleLbl = Instance.new("TextLabel")
+			roleLbl.Size = UDim2.new(1, -8, 0, 16)
+			roleLbl.Position = UDim2.new(0, 4, 0, 82)
+			roleLbl.BackgroundTransparency = 1
+			roleLbl.Text = cDef.RoleTag or ""
+			roleLbl.TextColor3 = cDef.Color
+			roleLbl.Font = Enum.Font.GothamBlack
+			roleLbl.TextSize = 9
+			roleLbl.TextTruncate = Enum.TextTruncate.AtEnd
+			roleLbl.ZIndex = 10
+			roleLbl.Parent = cardBtn
+
+			local idCopy = nextId
+			local uidCopy = basicUid
+			cardBtn.MouseButton1Click:Connect(function()
+				playSFX(sfxEvolve, 0.45)
+				EvolveDronePathEvent:FireServer(idCopy, uidCopy)
+			end)
+		end
+	end
 end
 
 -- ============================================================================
 -- 11. 3D CAMERA, FLIGHT CONTROLS, CLICK-TO-TARGET DRONES & STATION DETECTOR
 -- ============================================================================
-local camYaw = 0
-local camPitch = -0.18
-local camDist = 92
-local creatorOrbitYaw = 0.35
-local creatorOrbitPitch = -0.15
-local creatorZoom = 56
-local isRightMouseDown = false
-local isLeftMouseDown = false
-local leftClickFireTimer = 0
-local lastCursorSideDir = Vector3.new(1, 0, 0)
-local droneOrbitClock = 0
+(function()
+local camCtrl = {
+	Yaw = 0,
+	Pitch = -0.18,
+	Dist = 92,
+	CreatorYaw = 0.35,
+	CreatorPitch = -0.15,
+	CreatorZoom = 56,
+	RightDown = false,
+	LeftDown = false,
+	LastSideDir = Vector3.new(1, 0, 0),
+	OrbitClock = 0,
+}
 
 local moveKeys = {
 	W = false,
@@ -5204,7 +5953,7 @@ local moveKeys = {
 }
 
 local function buildAimExcludeList(): { Instance }
-	local excludeList: { Instance } = { clientStarsFolder, beamFXFolder }
+	local excludeList: { Instance } = { clientStarsFolder, beamFXFolder, stickyBombsFolder }
 	if localActivePlanetModel then
 		table.insert(excludeList, localActivePlanetModel)
 	end
@@ -5249,10 +5998,22 @@ local function handleHubFoundryClick(screenPos: Vector2): boolean
 	return false
 end
 
+local function getMaxFleetRange(): number
+	local maxR = 260
+	for _, dInfo in ipairs(activeDroneModels) do
+		local r = (dInfo.Stats and dInfo.Stats.Range) or 260
+		if r > maxR then
+			maxR = r
+		end
+	end
+	return maxR
+end
+
 local function getMouseAimData(camRot: CFrame): (Model?, Vector3, Vector3)
 	if not camera then
-		return nil, localPlanetPos + lastCursorSideDir * 80, lastCursorSideDir
+		return nil, localPlanetPos + camCtrl.LastSideDir * 80, camCtrl.LastSideDir
 	end
+	local maxRange = getMaxFleetRange()
 	local mPos = UserInputService:GetMouseLocation()
 	local unitRay = camera:ViewportPointToRay(mPos.X, mPos.Y)
 	local camLook = camRot.LookVector
@@ -5261,15 +6022,15 @@ local function getMouseAimData(camRot: CFrame): (Model?, Vector3, Vector3)
 	local planePoint = unitRay.Origin + unitRay.Direction * math.max(10, tPlane)
 	local sideOffset = planePoint - localPlanetPos
 	if sideOffset.Magnitude > 0.5 then
-		lastCursorSideDir = sideOffset.Unit
+		camCtrl.LastSideDir = sideOffset.Unit
 	end
 
 	local rParams = RaycastParams.new()
 	rParams.FilterType = Enum.RaycastFilterType.Exclude
 	rParams.FilterDescendantsInstances = buildAimExcludeList()
 
-	local hit = Workspace:Raycast(unitRay.Origin, unitRay.Direction * 380, rParams)
-	local aimWorldPos = (hit and hit.Position) or (unitRay.Origin + unitRay.Direction * math.clamp(tPlane + 55, 70, 230))
+	local hit = Workspace:Raycast(unitRay.Origin, unitRay.Direction * (maxRange + 140), rParams)
+	local aimWorldPos = (hit and hit.Position) or (unitRay.Origin + unitRay.Direction * math.clamp(tPlane + 55, 70, math.min(maxRange, 420)))
 	local aimedTarget: Model? = nil
 
 	if hit and hit.Instance then
@@ -5292,13 +6053,13 @@ local function getMouseAimData(camRot: CFrame): (Model?, Vector3, Vector3)
 		local env = Workspace:FindFirstChild("CosmicEnvironment")
 		local nodes = env and env:FindFirstChild("CosmicResourceNodes")
 		if nodes then
-			local bestD = 18
+			local bestD = 26
 			for _, chunk in ipairs(nodes:GetChildren()) do
 				if chunk:IsA("Model") then
 					for _, ch in ipairs(chunk:GetChildren()) do
 						if ch:IsA("Model") and ch:GetAttribute("Available") ~= false and ((ch:GetAttribute("HP") :: number?) or 0) > 0 then
 							local d = (ch:GetPivot().Position - aimWorldPos).Magnitude
-							if d < bestD and (ch:GetPivot().Position - localPlanetPos).Magnitude <= 255 then
+							if d < bestD and (ch:GetPivot().Position - localPlanetPos).Magnitude <= maxRange then
 								bestD = d
 								aimedTarget = ch
 							end
@@ -5309,18 +6070,22 @@ local function getMouseAimData(camRot: CFrame): (Model?, Vector3, Vector3)
 		end
 	end
 
-	return aimedTarget, aimWorldPos, lastCursorSideDir
+	return aimedTarget, aimWorldPos, camCtrl.LastSideDir
 end
 
 UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
 	if input.UserInputType == Enum.UserInputType.MouseButton2 then
-		isRightMouseDown = true
+		camCtrl.RightDown = true
 		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
 	elseif input.UserInputType == Enum.UserInputType.MouseButton1 and not gameProcessed then
 		if not is2DMenuActive() and not modalFrame.Visible then
 			if not handleHubFoundryClick(Vector2.new(input.Position.X, input.Position.Y)) then
-				isLeftMouseDown = true
-				leftClickFireTimer = (currentState.Rates and currentState.Rates.FireCooldown) or 0.45
+				camCtrl.LeftDown = true
+				for _, dInfo in ipairs(activeDroneModels) do
+					local reloadLvl = (currentState.PlanetUpgrades and currentState.PlanetUpgrades.DroneReloadSpeed) or 0
+					local effCd = math.max(0.05, ((dInfo.Stats and dInfo.Stats.FireCooldown) or 0.45) / (1 + reloadLvl * 0.18))
+					dInfo.FireTimer = effCd
+				end
 			end
 		end
 	end
@@ -5342,6 +6107,11 @@ UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: 
 		if not is2DMenuActive() then
 			toggleQUpgradePopup()
 		end
+	elseif kc == Enum.KeyCode.R then
+		if not is2DMenuActive() then
+			playSFX(sfxEvolve, 0.45)
+			DetonateStickyBombsEvent:FireServer()
+		end
 	elseif kc == Enum.KeyCode.LeftControl then
 		moveKeys.Q = true
 	elseif kc == Enum.KeyCode.LeftShift then
@@ -5355,10 +6125,10 @@ end)
 
 UserInputService.InputEnded:Connect(function(input: InputObject)
 	if input.UserInputType == Enum.UserInputType.MouseButton2 then
-		isRightMouseDown = false
+		camCtrl.RightDown = false
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
-		isLeftMouseDown = false
+		camCtrl.LeftDown = false
 	end
 	local kc = input.KeyCode
 	if kc == Enum.KeyCode.W then
@@ -5379,25 +6149,22 @@ UserInputService.InputEnded:Connect(function(input: InputObject)
 end)
 
 UserInputService.InputChanged:Connect(function(input: InputObject, gameProcessed: boolean)
-	if input.UserInputType == Enum.UserInputType.MouseMovement and isRightMouseDown then
+	if input.UserInputType == Enum.UserInputType.MouseMovement and camCtrl.RightDown then
 		if is2DMenuActive() then
-			creatorOrbitYaw -= input.Delta.X * 0.005
-			creatorOrbitPitch = math.clamp(creatorOrbitPitch - input.Delta.Y * 0.005, -1.1, 1.1)
+			camCtrl.CreatorYaw -= input.Delta.X * 0.005
+			camCtrl.CreatorPitch = math.clamp(camCtrl.CreatorPitch - input.Delta.Y * 0.005, -1.1, 1.1)
 		else
-			camYaw -= input.Delta.X * 0.0045
-			camPitch = math.clamp(camPitch - input.Delta.Y * 0.0045, -1.25, 1.25)
+			camCtrl.Yaw -= input.Delta.X * 0.0045
+			camCtrl.Pitch = math.clamp(camCtrl.Pitch - input.Delta.Y * 0.0045, -1.25, 1.25)
 		end
 	elseif input.UserInputType == Enum.UserInputType.MouseWheel and not gameProcessed then
 		if is2DMenuActive() then
-			creatorZoom = math.clamp(creatorZoom - input.Position.Z * 5, 34, 95)
+			camCtrl.CreatorZoom = math.clamp(camCtrl.CreatorZoom - input.Position.Z * 5, 34, 95)
 		else
-			camDist = math.clamp(camDist - input.Position.Z * 8, 46, 260)
+			camCtrl.Dist = math.clamp(camCtrl.Dist - input.Position.Z * 8, 46, 260)
 		end
 	end
 end)
-
-local proximityTargetScanTimer = 0
-local nearestAutoTarget: Model? = nil
 
 RunService.RenderStepped:Connect(function(dt: number)
 	camera = Workspace.CurrentCamera
@@ -5427,8 +6194,8 @@ RunService.RenderStepped:Connect(function(dt: number)
 		end
 
 		local lookTarget = Vector3.new(2, 0, 0)
-		local orbitRot = CFrame.fromEulerAnglesYXZ(creatorOrbitPitch, creatorOrbitYaw, 0)
-		local vpCamPos = lookTarget + (orbitRot * Vector3.new(0, 4, creatorZoom))
+		local orbitRot = CFrame.fromEulerAnglesYXZ(camCtrl.CreatorPitch, camCtrl.CreatorYaw, 0)
+		local vpCamPos = lookTarget + (orbitRot * Vector3.new(0, 4, camCtrl.CreatorZoom))
 		mainViewportCam.CFrame = CFrame.lookAt(vpCamPos, lookTarget)
 		sfxThrusterLoop.Volume = 0
 		return
@@ -5439,7 +6206,7 @@ RunService.RenderStepped:Connect(function(dt: number)
 		refreshShowroomAndActivePlanetModels()
 	end
 
-	local camRot = CFrame.fromEulerAnglesYXZ(camPitch, camYaw, 0)
+	local camRot = CFrame.fromEulerAnglesYXZ(camCtrl.Pitch, camCtrl.Yaw, 0)
 	local lookForward = camRot.LookVector
 	local lookRight = camRot.RightVector
 
@@ -5496,9 +6263,9 @@ RunService.RenderStepped:Connect(function(dt: number)
 	currentBankRoll = currentBankRoll + (targetRoll - currentBankRoll) * math.clamp(dt * 6, 0, 1)
 	currentBankPitch = currentBankPitch + (targetPitch - currentBankPitch) * math.clamp(dt * 6, 0, 1)
 
-	local planetTiltCF = CFrame.fromEulerAnglesYXZ(0, camYaw, 0)
+	local planetTiltCF = CFrame.fromEulerAnglesYXZ(0, camCtrl.Yaw, 0)
 		* CFrame.Angles(currentBankPitch, 0, currentBankRoll)
-		* CFrame.Angles(0, spinAngle - camYaw, math.rad(8))
+		* CFrame.Angles(0, spinAngle - camCtrl.Yaw, math.rad(8))
 
 	if localActivePlanetModel then
 		localActivePlanetModel:PivotTo(CFrame.new(localPlanetPos) * planetTiltCF)
@@ -5512,49 +6279,107 @@ RunService.RenderStepped:Connect(function(dt: number)
 		end
 	end
 
-	-- Aim Drones toward Mouse Cursor, Fly Beside Player on Cursor's Side, & Attack while Left-Click Held
+	-- Aim Drones toward Mouse Cursor, Support Far-Flying Long-Range Scouts, & Per-Drone Firing Cadence!
 	local aimedTarget, aimWorldPos, cursorSideDir = getMouseAimData(camRot)
 	targetLockCard.Visible = false
 
-	droneOrbitClock += dt * 2.1
+	camCtrl.OrbitClock += dt * 2.1
 	local pScale = getLocalPlanetScaleFactor()
 	local sideDist = 22 * pScale + 6
 	local droneCount = #activeDroneModels
+	local reloadLvl = (currentState.PlanetUpgrades and currentState.PlanetUpgrades.DroneReloadSpeed) or 0
+	local aimDir = (aimWorldPos - localPlanetPos)
+	local aimDirUnit = (aimDir.Magnitude > 0.5) and aimDir.Unit or lookForward
+
 	for i, dInfo in ipairs(activeDroneModels) do
 		if dInfo.Model and dInfo.Model.Parent then
-			local bobY = math.sin(droneOrbitClock * 2.4 + i * 1.4) * 2.2
+			local bobY = math.sin(camCtrl.OrbitClock * 2.4 + i * 1.4) * 2.2
 			local spreadAngle = (i - (droneCount + 1) * 0.5) * 0.30
 			local droneDir = (CFrame.fromAxisAngle(lookForward, spreadAngle):VectorToWorldSpace(cursorSideDir)).Unit
-			local desiredPos = localPlanetPos + droneDir * sideDist + Vector3.new(0, bobY + 2, 0)
-			local lookAtPos = aimWorldPos
+			local dStats = dInfo.Stats or PlanetConfig.GetDroneStats(dInfo.DroneId, 1, false)
+			local leash = dStats.LeashRange or 0
 
-			dInfo.CurrentPos = dInfo.CurrentPos:Lerp(desiredPos, math.clamp(dt * 12.0, 0, 1))
-			dInfo.Model:PivotTo(CFrame.lookAt(dInfo.CurrentPos, lookAtPos))
+			local desiredPos: Vector3
+			if leash > 0 and (aimedTarget ~= nil or camCtrl.LeftDown) then
+				-- Long-Range Scout / Sniper physically flies very far out toward target/cursor!
+				local focusPoint = aimedTarget and aimedTarget:GetPivot().Position or aimWorldPos
+				local offsetFromPlanet = focusPoint - localPlanetPos
+				local distToFocus = offsetFromPlanet.Magnitude
+				local scoutDist = math.clamp(distToFocus - 65, sideDist, leash)
+				local scoutDir = (distToFocus > 0.5) and offsetFromPlanet.Unit or aimDirUnit
+				local sideJog = CFrame.fromAxisAngle(lookForward, spreadAngle * 0.5):VectorToWorldSpace(scoutDir).Unit
+				desiredPos = localPlanetPos + sideJog * scoutDist + Vector3.new(0, bobY + 4, 0)
+			else
+				desiredPos = localPlanetPos + droneDir * sideDist + Vector3.new(0, bobY + 2, 0)
+			end
+
+			dInfo.RecoilOffset = dInfo.RecoilOffset:Lerp(Vector3.zero, math.clamp(dt * 12, 0, 1))
+			dInfo.CurrentPos = dInfo.CurrentPos:Lerp(desiredPos + dInfo.RecoilOffset, math.clamp(dt * 9.5, 0, 1))
+			dInfo.Model:PivotTo(CFrame.lookAt(dInfo.CurrentPos, aimWorldPos))
 		end
 	end
 
-	local fireCooldown = (currentState.Rates and currentState.Rates.FireCooldown) or 0.45
-	if isLeftMouseDown and (#activeDroneModels > 0) and (not is2DMenuActive()) and (not modalFrame.Visible) then
-		leftClickFireTimer += dt
-		if leftClickFireTimer >= fireCooldown then
-			leftClickFireTimer = 0
-			if aimedTarget and (aimedTarget:GetPivot().Position - localPlanetPos).Magnitude <= 255 then
-				SetDroneTargetEvent:FireServer(aimedTarget, aimWorldPos)
-			else
-				-- Fire visible beams straight toward the mouse cursor position even in open space!
-				for _, dInfo in ipairs(activeDroneModels) do
-					if dInfo.Model and dInfo.Model.Parent then
-						local root = dInfo.Model.PrimaryPart
-						local muzzle = root and root:FindFirstChild("BeamMuzzle") :: Attachment?
-						local startPos = muzzle and muzzle.WorldPosition or dInfo.Model:GetPivot().Position
-						spawnLaserBeamSegment(startPos, aimWorldPos, dInfo.BeamColor, 0.58)
+	if camCtrl.LeftDown and (#activeDroneModels > 0) and (not is2DMenuActive()) and (not modalFrame.Visible) then
+		for _, dInfo in ipairs(activeDroneModels) do
+			if dInfo.Model and dInfo.Model.Parent then
+				local dStats = dInfo.Stats or PlanetConfig.GetDroneStats(dInfo.DroneId, 1, false)
+				local effCd = math.max(0.05, (dStats.FireCooldown or 0.45) / (1 + reloadLvl * 0.18))
+				dInfo.FireTimer += dt
+				if dInfo.FireTimer >= effCd then
+					dInfo.FireTimer = 0
+					local maxR = dStats.Range or 260
+					local style = dStats.ProjectileStyle or "Standard"
+					local startPos = getDroneMuzzlePos(dInfo)
+					local recoilMag = (style == "HeavySlug") and 4.2 or ((style == "RapidBolt") and 0.9 or 1.8)
+					dInfo.RecoilOffset = -aimDirUnit * recoilMag
+
+					local targetInRange = aimedTarget and ((aimedTarget:GetPivot().Position - localPlanetPos).Magnitude <= (maxR + 25))
+					if style == "StickyBomb" or style == "SpreadPellet" or targetInRange then
+						SetDroneTargetEvent:FireServer(targetInRange and aimedTarget or nil, aimWorldPos, dInfo.Uid, aimDirUnit)
+					else
+						-- Pure client-side open-space laser preview so every drone visibly fires toward cursor
+						local previewEnd = localPlanetPos + aimDirUnit * math.min(maxR, math.max(60, (aimWorldPos - localPlanetPos).Magnitude))
+						local width = (style == "HeavySlug" and 1.45) or (style == "RapidBolt" and 0.30) or (style == "SniperBeam" and 0.40) or 0.55
+						spawnLaserBeamSegment(startPos, previewEnd, dInfo.BeamColor, width, (style == "RapidBolt") and 0.11 or 0.18)
 					end
 				end
 			end
 		end
 	else
-		leftClickFireTimer = fireCooldown
+		for _, dInfo in ipairs(activeDroneModels) do
+			local dStats = dInfo.Stats or PlanetConfig.GetDroneStats(dInfo.DroneId, 1, false)
+			local effCd = math.max(0.05, (dStats.FireCooldown or 0.45) / (1 + reloadLvl * 0.18))
+			dInfo.FireTimer = effCd
+		end
 	end
+
+	-- Keep attached Sticky Bombs glued to moving/rotating asteroids & blink their LEDs!
+	local blinkOn = (os.clock() % 0.6) < 0.3
+	for bId, bEntry in pairs(activeStickyBombs) do
+		if bEntry.Model and bEntry.Model.Parent then
+			if bEntry.TargetRoot and bEntry.TargetRoot.Parent then
+				if bEntry.TargetRoot:GetAttribute("Available") == false then
+					bEntry.Model:Destroy()
+					activeStickyBombs[bId] = nil
+				else
+					local worldStick = bEntry.TargetRoot.CFrame:PointToWorldSpace(bEntry.LocalOffset)
+					local curRot = bEntry.Model:GetPivot() - bEntry.Model:GetPivot().Position
+					bEntry.Model:PivotTo(CFrame.new(worldStick) * curRot)
+				end
+			end
+			if activeStickyBombs[bId] then
+				local led = bEntry.Model:FindFirstChild("BombLED") :: BasePart?
+				if led then
+					led.Color = blinkOn and bEntry.Color or Color3.fromRGB(255, 235, 110)
+				end
+			end
+		else
+			activeStickyBombs[bId] = nil
+		end
+	end
+
+	-- Update Proximity Prompt Y position above Sticky Detonate button when active
+	proximityPromptBtn.Position = detonateBombsBtn.Visible and UDim2.new(0.5, 0, 1, -152) or UDim2.new(0.5, 0, 1, -104)
 
 	-- Authentic Low-Frequency Space Thruster Audio (Silent when stopped!)
 	local speedMag = localVelocity.Magnitude
@@ -5623,10 +6448,11 @@ RunService.RenderStepped:Connect(function(dt: number)
 		FlightSyncEvent:FireServer(localPlanetPos, spinAngle, currentBankRoll, currentBankPitch)
 	end
 
-	local camPos = localPlanetPos + (camRot * Vector3.new(0, 14, camDist))
+	local camPos = localPlanetPos + (camRot * Vector3.new(0, 14, camCtrl.Dist))
 	local lookAtTarget = localPlanetPos + Vector3.new(0, 3, 0)
 	camera.CFrame = CFrame.lookAt(camPos, lookAtTarget)
 end)
+end)() -- End Section 11 scope
 
 StateSyncEvent.OnClientEvent:Connect(function(newState: any)
 	local wasSetup = currentState.HasCompletedSetup
@@ -5636,6 +6462,198 @@ StateSyncEvent.OnClientEvent:Connect(function(newState: any)
 	end
 	refreshUI()
 end)
+
+-- ============================================================================
+-- 12. EXCLUSIVE DEVELOPER ADMIN CONSOLE (Fintanfire & pizqwe ONLY)
+-- ============================================================================
+;(function()
+	if not PlanetConfig.IsAdminPlayer(localPlayer) then
+		return
+	end
+
+	local AdminCommandEvent = Remotes:WaitForChild("AdminCommand") :: RemoteEvent
+
+	local adminToggleBtn = Instance.new("TextButton")
+	adminToggleBtn.Name = "DevAdminToggleBtn"
+	adminToggleBtn.Size = UDim2.new(0, 122, 0, 36)
+	adminToggleBtn.AnchorPoint = Vector2.new(1, 0.5)
+	adminToggleBtn.Position = UDim2.new(1, -14, 0.5, -48)
+	adminToggleBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	adminToggleBtn.Text = "🛠️ ADMIN [F2]"
+	adminToggleBtn.TextColor3 = Color3.fromRGB(22, 16, 8)
+	adminToggleBtn.Font = Enum.Font.GothamBlack
+	adminToggleBtn.TextSize = 11
+	adminToggleBtn.ZIndex = 12
+	adminToggleBtn.Parent = inGameHUD
+	addCorner(adminToggleBtn, 10)
+	addBorderStroke(adminToggleBtn, Color3.fromRGB(16, 12, 8), 2.8)
+	addGradient(adminToggleBtn, Color3.fromRGB(255, 222, 72), Color3.fromRGB(232, 152, 22), 90)
+
+	local adminFrame = Instance.new("TextButton")
+	adminFrame.Name = "DevAdminConsoleFrame"
+	adminFrame.Size = UDim2.new(0, 480, 0, 396)
+	adminFrame.AnchorPoint = Vector2.new(1, 0.5)
+	adminFrame.Position = UDim2.new(1, -14, 0.5, -8)
+	adminFrame.BackgroundColor3 = Color3.fromRGB(16, 22, 42)
+	adminFrame.Text = ""
+	adminFrame.AutoButtonColor = false
+	adminFrame.Active = true
+	adminFrame.Visible = false
+	adminFrame.ZIndex = 20
+	adminFrame.Parent = inGameHUD
+	addCorner(adminFrame, 16)
+	addBorderStroke(adminFrame, Color3.fromRGB(255, 205, 55), 3.0)
+
+	local adminHeader = Instance.new("TextLabel")
+	adminHeader.Size = UDim2.new(1, -56, 0, 30)
+	adminHeader.Position = UDim2.new(0, 14, 0, 8)
+	adminHeader.BackgroundTransparency = 1
+	adminHeader.Text = "🛠️ DEV ADMIN TEST CONSOLE (FINTANFIRE & PIZQWE)"
+	adminHeader.TextColor3 = Color3.fromRGB(255, 220, 75)
+	adminHeader.Font = Enum.Font.GothamBlack
+	adminHeader.TextSize = 13
+	adminHeader.TextXAlignment = Enum.TextXAlignment.Left
+	adminHeader.ZIndex = 21
+	adminHeader.Parent = adminFrame
+	addTextStroke(adminHeader, 1.5)
+
+	local adminCloseBtn = Instance.new("TextButton")
+	adminCloseBtn.Size = UDim2.new(0, 30, 0, 30)
+	adminCloseBtn.Position = UDim2.new(1, -38, 0, 8)
+	adminCloseBtn.BackgroundColor3 = Color3.fromRGB(235, 58, 58)
+	adminCloseBtn.Text = "X"
+	adminCloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	adminCloseBtn.Font = Enum.Font.GothamBlack
+	adminCloseBtn.TextSize = 14
+	adminCloseBtn.ZIndex = 22
+	adminCloseBtn.Parent = adminFrame
+	addCorner(adminCloseBtn, 8)
+	addBorderStroke(adminCloseBtn, Color3.fromRGB(10, 14, 24), 2.0)
+
+	local adminScroll = Instance.new("ScrollingFrame")
+	adminScroll.Size = UDim2.new(1, -20, 1, -48)
+	adminScroll.Position = UDim2.new(0, 10, 0, 42)
+	adminScroll.BackgroundTransparency = 1
+	adminScroll.BorderSizePixel = 0
+	adminScroll.ScrollBarThickness = 5
+	adminScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	adminScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	adminScroll.ZIndex = 21
+	adminScroll.Parent = adminFrame
+
+	local sList = Instance.new("UIListLayout")
+	sList.Padding = UDim.new(0, 8)
+	sList.SortOrder = Enum.SortOrder.LayoutOrder
+	sList.Parent = adminScroll
+
+	local function addAdminSection(order: number, titleText: string, buttons: { { Label: string, Color: Color3, Action: () -> () } })
+		local hdr = Instance.new("TextLabel")
+		hdr.LayoutOrder = order
+		hdr.Size = UDim2.new(1, -8, 0, 18)
+		hdr.BackgroundTransparency = 1
+		hdr.Text = titleText
+		hdr.TextColor3 = Color3.fromRGB(135, 225, 255)
+		hdr.Font = Enum.Font.GothamBlack
+		hdr.TextSize = 11
+		hdr.TextXAlignment = Enum.TextXAlignment.Left
+		hdr.ZIndex = 22
+		hdr.Parent = adminScroll
+
+		local gridHolder = Instance.new("Frame")
+		gridHolder.LayoutOrder = order + 1
+		gridHolder.Size = UDim2.new(1, -8, 0, 36)
+		gridHolder.AutomaticSize = Enum.AutomaticSize.Y
+		gridHolder.BackgroundTransparency = 1
+		gridHolder.ZIndex = 21
+		gridHolder.Parent = adminScroll
+
+		local gl = Instance.new("UIGridLayout")
+		gl.CellSize = UDim2.new(0, 144, 0, 34)
+		gl.CellPadding = UDim2.new(0, 6, 0, 6)
+		gl.HorizontalAlignment = Enum.HorizontalAlignment.Left
+		gl.Parent = gridHolder
+
+		for _, def in ipairs(buttons) do
+			local b = Instance.new("TextButton")
+			b.BackgroundColor3 = def.Color
+			b.Text = def.Label
+			b.TextColor3 = Color3.fromRGB(255, 255, 255)
+			b.Font = Enum.Font.GothamBlack
+			b.TextSize = 10
+			b.TextWrapped = true
+			b.ZIndex = 22
+			b.Parent = gridHolder
+			addCorner(b, 8)
+			addBorderStroke(b, Color3.fromRGB(10, 14, 24), 1.8)
+			addTextStroke(b, 1.3)
+			b.MouseButton1Click:Connect(function()
+				playSFX(sfxUpgrade, 0.35)
+				def.Action()
+			end)
+		end
+	end
+
+	addAdminSection(1, "1. INSTANT SWITCH MAIN DRONE (TEST EACH ARCHETYPE)", {
+		{ Label = "🛸 Basic Drone", Color = Color3.fromRGB(52, 138, 220), Action = function() AdminCommandEvent:FireServer("SetClass", "BasicDrone") end },
+		{ Label = "⚡ Rapid (Fast)", Color = Color3.fromRGB(28, 172, 205), Action = function() AdminCommandEvent:FireServer("SetClass", "RapidPulse") end },
+		{ Label = "💥 Heavy (Big)", Color = Color3.fromRGB(205, 58, 58), Action = function() AdminCommandEvent:FireServer("SetClass", "HeavyCannon") end },
+		{ Label = "🎯 Long-Range", Color = Color3.fromRGB(42, 178, 108), Action = function() AdminCommandEvent:FireServer("SetClass", "LongRangeScout") end },
+		{ Label = "🔸 Spread (5x)", Color = Color3.fromRGB(212, 142, 32), Action = function() AdminCommandEvent:FireServer("SetClass", "SpreadShot") end },
+		{ Label = "💣 Sticky Bomb", Color = Color3.fromRGB(218, 86, 36), Action = function() AdminCommandEvent:FireServer("SetClass", "StickyBomber") end },
+	})
+
+	addAdminSection(3, "2. DIEP.IO PATH & FLEET TESTING", {
+		{
+			Label = "⭐ Lv.5 + Basic (Popup)",
+			Color = Color3.fromRGB(68, 188, 42),
+			Action = function()
+				modalFrame.Visible = false
+				isDiepBannerMinimized = false
+				AdminCommandEvent:FireServer("ResetBasicFleet")
+				AdminCommandEvent:FireServer("SetLevel", 5)
+			end,
+		},
+		{ Label = "🔄 Reset Lv.1 Basic", Color = Color3.fromRGB(92, 62, 138), Action = function() AdminCommandEvent:FireServer("ResetAllLv1") end },
+		{ Label = "🌟 Equip All 5 Paths", Color = Color3.fromRGB(165, 68, 215), Action = function() AdminCommandEvent:FireServer("EquipAll5Paths") end },
+		{ Label = "➕ Add Basic Drone", Color = Color3.fromRGB(42, 128, 198), Action = function() AdminCommandEvent:FireServer("AddBasicDrone") end },
+		{ Label = "⬆️ Drones +5 Lv", Color = Color3.fromRGB(38, 165, 135), Action = function() AdminCommandEvent:FireServer("LevelUpDrones", 5) end },
+		{ Label = "⭐ Player +5 Lv", Color = Color3.fromRGB(212, 155, 28), Action = function() AdminCommandEvent:FireServer("AddLevels", 5) end },
+	})
+
+	addAdminSection(5, "3. TARGET DUMMIES, COMBAT & ECONOMY", {
+		{
+			Label = "🪨 Spawn Test Asteroids",
+			Color = Color3.fromRGB(195, 118, 52),
+			Action = function()
+				local cam = Workspace.CurrentCamera
+				local fwd = cam and cam.CFrame.LookVector or Vector3.new(0, 0, -1)
+				AdminCommandEvent:FireServer("SpawnTestAsteroids", Vector3.new(fwd.X, 0, fwd.Z))
+			end,
+		},
+		{ Label = "⚡ +10 [Q] Upgrade Pts", Color = Color3.fromRGB(48, 175, 88), Action = function() AdminCommandEvent:FireServer("AddUpgradePoints", 10) end },
+		{ Label = "🚀 Boost ATK & Reload", Color = Color3.fromRGB(225, 78, 78), Action = function() AdminCommandEvent:FireServer("BoostCombatStats") end },
+		{ Label = "🔄 Reset [Q] Stats", Color = Color3.fromRGB(78, 92, 128), Action = function() AdminCommandEvent:FireServer("ResetCombatStats") end },
+		{ Label = "⛏️ +10K Ore & Gems", Color = Color3.fromRGB(195, 152, 32), Action = function() AdminCommandEvent:FireServer("GiveResources") end },
+		{ Label = "🌀 Unlock Stations", Color = Color3.fromRGB(145, 72, 205), Action = function() AdminCommandEvent:FireServer("UnlockAllStations") end },
+	})
+
+	local function toggleAdmin()
+		playSFX(sfxClick, 0.25)
+		adminFrame.Visible = not adminFrame.Visible
+	end
+
+	adminToggleBtn.MouseButton1Click:Connect(toggleAdmin)
+	adminCloseBtn.MouseButton1Click:Connect(function()
+		playSFX(sfxClick, 0.25)
+		adminFrame.Visible = false
+	end)
+
+	UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
+		if (not gameProcessed) and input.KeyCode == Enum.KeyCode.F2 then
+			toggleAdmin()
+		end
+	end)
+end)()
 
 switchMainMenuTab("Play")
 refreshUI()

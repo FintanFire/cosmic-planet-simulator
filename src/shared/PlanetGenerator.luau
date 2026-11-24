@@ -590,297 +590,281 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 end
 
 -- ============================================================================
--- 2B. 12 UNIQUE, HIGH-DETAIL 3D DRONE MODELS (Each with BeamMuzzle Attachment!)
+-- 2B. HIGH-CRAFT VOXEL-STYLE DRONE MODELS & STICKY BOMB BUILDER
 -- ============================================================================
-function PlanetGenerator.BuildCompanionDroneModel(companionId: string, isGolden: boolean?, level: number?): Model
-	local cDef = PlanetConfig.Companions[companionId] or PlanetConfig.Companions.ScrapWelder
-	local m = Instance.new("Model")
-	m.Name = "CompanionDrone_" .. companionId
-	local lvScale = 1.0 + math.clamp((tonumber(level) or 1) - 1, 0, 24) * 0.012
-	local s = lvScale
-	local mainCol = isGolden and Color3.fromRGB(255, 215, 55) or cDef.Color
-	local beamCol = isGolden and Color3.fromRGB(255, 230, 95) or (cDef.BeamColor or mainCol)
-	local chassisMat = isGolden and Enum.Material.Sandstone or Enum.Material.Slate
-
-	local body = createPart({
-		Name = "DroneCore",
-		Shape = Enum.PartType.Ball,
-		Size = Vector3.new(4.2 * s, 4.2 * s, 4.2 * s),
-		CFrame = CFrame.new(0, 0, 0),
-		Color = Color3.fromRGB(44, 50, 64),
-		Material = chassisMat,
+local function addVoxel(
+	m: Model,
+	posUnits: Vector3,
+	sizeUnits: Vector3,
+	u: number,
+	col: Color3,
+	mat: Enum.Material?,
+	name: string?
+): Part
+	return createPart({
+		Name = name or "Voxel",
+		Shape = Enum.PartType.Block,
+		Size = sizeUnits * u,
+		CFrame = CFrame.new(posUnits * u),
+		Color = col,
+		Material = mat or Enum.Material.SmoothPlastic,
 		Parent = m,
 	})
+end
+
+local function addVoxelSym(
+	m: Model,
+	posUnits: Vector3,
+	sizeUnits: Vector3,
+	u: number,
+	col: Color3,
+	mat: Enum.Material?,
+	namePrefix: string?
+)
+	addVoxel(m, Vector3.new(posUnits.X, posUnits.Y, posUnits.Z), sizeUnits, u, col, mat, (namePrefix or "Voxel") .. "_R")
+	addVoxel(m, Vector3.new(-posUnits.X, posUnits.Y, posUnits.Z), sizeUnits, u, col, mat, (namePrefix or "Voxel") .. "_L")
+end
+
+-- Resolves legacy drone IDs to their modern Voxel Class archetype
+local LEGACY_VOXEL_CLASS_MAP: { [string]: string } = {
+	ScrapWelder = "BasicDrone",
+	SputnikMiner = "LongRangeScout",
+	BioScout = "SpreadShot",
+	QuartzCutter = "RapidPulse",
+	SolarRelay = "HeavyCannon",
+	CryoSentinel = "OrbitalSniper",
+	PulsarValkyrie = "MinigunVortex",
+	DarkMatterCherub = "StickyBomber",
+	QuantumSeraph = "ClusterSapper",
+	ChronosDragon = "AnnihilatorCore",
+}
+
+function PlanetGenerator.BuildCompanionDroneModel(companionId: string, isGolden: boolean?, level: number?): Model
+	local resolvedId = LEGACY_VOXEL_CLASS_MAP[companionId] or companionId
+	local cDef = PlanetConfig.Companions[resolvedId] or PlanetConfig.Companions.BasicDrone
+	local m = Instance.new("Model")
+	m.Name = "VoxelDrone_" .. resolvedId
+	local lvScale = 1.0 + math.clamp((tonumber(level) or 1) - 1, 0, 24) * 0.015
+	local u = 0.52 * lvScale
+
+	local priCol = isGolden and Color3.fromRGB(255, 210, 55) or (cDef.Color or Color3.fromRGB(85, 195, 255))
+	local glowCol = isGolden and Color3.fromRGB(255, 240, 120) or (cDef.BeamColor or priCol)
+	local darkCol = isGolden and Color3.fromRGB(72, 58, 32) or Color3.fromRGB(34, 40, 54)
+	local midCol = darkCol:Lerp(priCol, 0.25)
+	local lightCol = priCol:Lerp(Color3.fromRGB(245, 248, 255), 0.38)
+	local armorMat = isGolden and Enum.Material.Sandstone or Enum.Material.SmoothPlastic
+	local frameMat = Enum.Material.Slate
+
+	-- Central Voxel Cube Core (PrimaryPart)
+	local body = addVoxel(m, Vector3.new(0, 0, 0), Vector3.new(5, 4, 5), u, darkCol, frameMat, "DroneCore")
 	m.PrimaryPart = body
 
-	-- Muzzle attachment at the front (-Z) for 3D Laser Beams
+	-- Stepped Top & Bottom Armor Caps (crisp voxel bevel silhouette)
+	addVoxel(m, Vector3.new(0, 2.5, 0), Vector3.new(4, 1, 4), u, priCol, armorMat, "TopCap")
+	addVoxel(m, Vector3.new(0, -2.4, 0), Vector3.new(3.5, 1, 3.5), u, midCol, armorMat, "BotCap")
+	-- Glowing Front Optics Strip
+	addVoxel(m, Vector3.new(0, 0.6, -2.7), Vector3.new(3.2, 1.0, 0.8), u, glowCol, Enum.Material.Neon, "OpticVisor")
+	-- Rear Voxel Engine Thrust Block
+	addVoxel(m, Vector3.new(0, 0, 2.8), Vector3.new(3.0, 2.2, 1.0), u, darkCol, frameMat, "RearThrusterHousing")
+	addVoxel(m, Vector3.new(0, 0, 3.3), Vector3.new(2.0, 1.2, 0.6), u, glowCol, Enum.Material.Neon, "RearThrusterGlow")
+
+	local muzzleZ = -4.2 * u
+
+	if resolvedId == "RapidPulse" or resolvedId == "MinigunVortex" or resolvedId == "TwinLaser" then
+		-- FAST-FIRE GATLING / RAPID BOLT VOXEL DRONE
+		local isQuad = (resolvedId == "MinigunVortex")
+		local isTwin = (resolvedId == "TwinLaser")
+		addVoxelSym(m, Vector3.new(3.2, 0.4, 0.4), Vector3.new(1.8, 2.2, 3.6), u, priCol, armorMat, "AmmoDrum")
+		addVoxelSym(m, Vector3.new(3.2, 1.7, 0.4), Vector3.new(1.2, 0.7, 2.2), u, lightCol, armorMat, "DrumTop")
+		addVoxelSym(m, Vector3.new(4.4, -0.3, 1.2), Vector3.new(1.0, 1.4, 2.6), u, glowCol, Enum.Material.Neon, "CoolingVent")
+
+		if isQuad then
+			-- 4 rotary stacked voxel gatling barrels
+			local offsets = { Vector2.new(-1.1, 0.9), Vector2.new(1.1, 0.9), Vector2.new(-1.1, -0.9), Vector2.new(1.1, -0.9) }
+			for bIdx, off in ipairs(offsets) do
+				addVoxel(m, Vector3.new(off.X, off.Y, -4.6), Vector3.new(0.85, 0.85, 5.4), u, darkCol, frameMat, "QuadBarrel_" .. bIdx)
+				addVoxel(m, Vector3.new(off.X, off.Y, -7.4), Vector3.new(0.95, 0.95, 0.7), u, glowCol, Enum.Material.Neon, "QuadTip_" .. bIdx)
+			end
+			muzzleZ = -7.6 * u
+		elseif isTwin then
+			-- 2 wide rapid-laser cannon pods
+			addVoxelSym(m, Vector3.new(1.6, -0.2, -4.5), Vector3.new(1.2, 1.2, 4.8), u, darkCol, frameMat, "TwinBarrel")
+			addVoxelSym(m, Vector3.new(1.6, -0.2, -7.0), Vector3.new(1.3, 1.3, 0.8), u, glowCol, Enum.Material.Neon, "TwinTip")
+			muzzleZ = -7.2 * u
+		else
+			-- RapidPulse: sleek twin stacked rapid voxel barrels
+			addVoxelSym(m, Vector3.new(1.1, -0.2, -4.0), Vector3.new(0.9, 1.0, 4.2), u, darkCol, frameMat, "GatBarrel")
+			addVoxelSym(m, Vector3.new(1.1, -0.2, -6.2), Vector3.new(0.95, 1.05, 0.7), u, glowCol, Enum.Material.Neon, "GatTip")
+			muzzleZ = -6.4 * u
+		end
+
+	elseif resolvedId == "HeavyCannon" or resolvedId == "AnnihilatorCore" or resolvedId == "RailJuggernaut" then
+		-- SLOW / HUGE-DAMAGE SIEGE CANNON VOXEL DRONE
+		local isAnnihilator = (resolvedId == "AnnihilatorCore")
+		local isRail = (resolvedId == "RailJuggernaut")
+		-- Heavy armored pauldrons
+		addVoxelSym(m, Vector3.new(3.8, 0.6, 0.3), Vector3.new(2.4, 3.8, 4.6), u, priCol, armorMat, "HeavyPauldron")
+		addVoxelSym(m, Vector3.new(3.8, 2.8, 0.3), Vector3.new(1.8, 1.0, 3.6), u, darkCol, frameMat, "PauldronTrim")
+		addVoxelSym(m, Vector3.new(5.2, 0.2, 1.4), Vector3.new(0.8, 2.2, 2.4), u, glowCol, Enum.Material.Neon, "ReactorCell")
+
+		if isRail then
+			-- Twin elongated rail prongs + glowing magnetic bridge coils
+			addVoxelSym(m, Vector3.new(1.3, -0.1, -5.6), Vector3.new(0.9, 1.4, 7.6), u, darkCol, frameMat, "RailProng")
+			for seg = 1, 3 do
+				addVoxel(m, Vector3.new(0, -0.1, -3.2 - seg * 1.8), Vector3.new(2.2, 0.9, 0.65), u, glowCol, Enum.Material.Neon, "RailCoil_" .. seg)
+			end
+			muzzleZ = -9.5 * u
+		else
+			local boreW = isAnnihilator and 3.4 or 2.6
+			local barrelL = isAnnihilator and 6.2 or 5.2
+			addVoxel(m, Vector3.new(0, -0.2, -4.4), Vector3.new(boreW, boreW, barrelL), u, darkCol, frameMat, "SiegeBarrel")
+			addVoxel(m, Vector3.new(0, -0.2, -4.4 - barrelL * 0.5 + 0.4), Vector3.new(boreW + 0.6, boreW + 0.6, 1.2), u, priCol, armorMat, "MuzzleCollar")
+			addVoxel(m, Vector3.new(0, -0.2, -4.4 - barrelL * 0.5 - 0.1), Vector3.new(boreW * 0.62, boreW * 0.62, 0.5), u, glowCol, Enum.Material.Neon, "SiegeCore")
+			muzzleZ = (-4.5 - barrelL * 0.5) * u
+		end
+
+	elseif resolvedId == "LongRangeScout" or resolvedId == "OrbitalSniper" or resolvedId == "HunterDrone" then
+		-- LONG-RANGE SNIPER / FAR-FLYING SCOUT VOXEL DRONE
+		local isSniperPlus = (resolvedId == "OrbitalSniper")
+		local isHunter = (resolvedId == "HunterDrone")
+		-- Stepped swept delta wings
+		addVoxelSym(m, Vector3.new(3.8, 0, 1.2), Vector3.new(2.6, 0.8, 3.0), u, priCol, armorMat, "DeltaWingInner")
+		addVoxelSym(m, Vector3.new(5.8, -0.2, 2.2), Vector3.new(2.2, 0.7, 2.2), u, lightCol, armorMat, "DeltaWingTip")
+		addVoxelSym(m, Vector3.new(5.8, 0.4, 2.2), Vector3.new(0.8, 0.6, 1.6), u, glowCol, Enum.Material.Neon, "WingBeacon")
+		-- Dorsal radar / rangefinder cube
+		addVoxel(m, Vector3.new(0, 3.6, 0.4), Vector3.new(2.0, 1.4, 2.0), u, darkCol, frameMat, "Rangefinder")
+		addVoxel(m, Vector3.new(0, 3.8, -0.7), Vector3.new(1.2, 0.8, 0.6), u, glowCol, Enum.Material.Neon, "ScopeLens")
+
+		if isHunter then
+			-- Dual long-range precision barrels
+			addVoxelSym(m, Vector3.new(1.1, -0.2, -5.6), Vector3.new(0.8, 0.8, 7.0), u, darkCol, frameMat, "HunterBarrel")
+			addVoxelSym(m, Vector3.new(1.1, -0.2, -9.2), Vector3.new(0.95, 0.95, 0.7), u, glowCol, Enum.Material.Neon, "HunterTip")
+			muzzleZ = -9.4 * u
+		else
+			local len = isSniperPlus and 10.2 or 8.0
+			addVoxel(m, Vector3.new(0, -0.2, -2.5 - len * 0.5), Vector3.new(1.1, 1.1, len), u, darkCol, frameMat, "SniperBarrel")
+			addVoxel(m, Vector3.new(0, -0.2, -2.5 - len * 0.45), Vector3.new(1.7, 1.7, 1.0), u, priCol, armorMat, "FocusRingA")
+			addVoxel(m, Vector3.new(0, -0.2, -2.5 - len * 0.78), Vector3.new(1.5, 1.5, 0.8), u, glowCol, Enum.Material.Neon, "FocusRingB")
+			addVoxel(m, Vector3.new(0, -0.2, -2.5 - len - 0.3), Vector3.new(1.2, 1.2, 0.7), u, glowCol, Enum.Material.Neon, "SniperTip")
+			muzzleZ = (-2.6 - len) * u
+		end
+
+	elseif resolvedId == "SpreadShot" or resolvedId == "PentaBlaster" or resolvedId == "OctoBarrage" then
+		-- MULTI-BULLET SPREAD VOXEL DRONE
+		local nozzleCount = (resolvedId == "OctoBarrage" and 7) or 5
+		addVoxel(m, Vector3.new(0, -0.2, -2.6), Vector3.new(6.8, 2.2, 1.4), u, priCol, armorMat, "SpreadBow")
+		addVoxelSym(m, Vector3.new(3.8, 0.4, 0.6), Vector3.new(1.8, 2.0, 2.8), u, lightCol, armorMat, "FlakPod")
+
+		local half = (nozzleCount - 1) * 0.5
+		for nIdx = 1, nozzleCount do
+			local rel = nIdx - 1 - half
+			local angY = math.rad(-rel * 11)
+			local xPos = rel * 1.15
+			local nozzlePivot = CFrame.new(Vector3.new(xPos, -0.2, -3.2) * u) * CFrame.Angles(0, angY, 0)
+			createPart({
+				Name = "SpreadBarrel_" .. nIdx,
+				Shape = Enum.PartType.Block,
+				Size = Vector3.new(0.85, 0.85, 2.6) * u,
+				CFrame = nozzlePivot * CFrame.new(0, 0, -1.2 * u),
+				Color = darkCol,
+				Material = frameMat,
+				Parent = m,
+			})
+			createPart({
+				Name = "SpreadTip_" .. nIdx,
+				Shape = Enum.PartType.Block,
+				Size = Vector3.new(0.95, 0.95, 0.55) * u,
+				CFrame = nozzlePivot * CFrame.new(0, 0, -2.5 * u),
+				Color = glowCol,
+				Material = Enum.Material.Neon,
+				Parent = m,
+			})
+		end
+		muzzleZ = -5.6 * u
+
+	elseif resolvedId == "StickyBomber" or resolvedId == "ClusterSapper" or resolvedId == "NovaDemolisher" then
+		-- STICKY BOMB SAPPER VOXEL DRONE (Hazard Stripe Body + Mortar Chute + Side Bomb Racks!)
+		local isCluster = (resolvedId == "ClusterSapper")
+		local isNova = (resolvedId == "NovaDemolisher")
+		local hazardDark = Color3.fromRGB(28, 30, 38)
+		local hazardYellow = Color3.fromRGB(255, 195, 38)
+		local armedRed = Color3.fromRGB(255, 65, 55)
+
+		-- Top Hazard Beacon & Bomb Tank
+		addVoxel(m, Vector3.new(0, 3.2, 0.2), Vector3.new(2.2, 1.2, 2.6), u, hazardYellow, armorMat, "HazardDeck")
+		addVoxel(m, Vector3.new(0, 4.1, 0.2), Vector3.new(1.1, 0.9, 1.1), u, armedRed, Enum.Material.Neon, "DetonatorBeacon")
+
+		-- Side Bomb Racks carrying visible mini voxel sticky mines
+		addVoxelSym(m, Vector3.new(3.5, -0.4, 0.3), Vector3.new(1.6, 2.4, 3.6), u, hazardDark, frameMat, "BombRack")
+		addVoxelSym(m, Vector3.new(4.2, -0.2, -0.6), Vector3.new(1.1, 1.1, 1.1), u, armedRed, Enum.Material.Neon, "RackMineFront")
+		addVoxelSym(m, Vector3.new(4.2, -0.2, 1.1), Vector3.new(1.1, 1.1, 1.1), u, hazardYellow, Enum.Material.Neon, "RackMineRear")
+
+		if isCluster then
+			-- Dual wide mortar chutes
+			addVoxelSym(m, Vector3.new(1.4, -0.2, -3.9), Vector3.new(1.6, 1.8, 3.2), u, hazardDark, frameMat, "ClusterChute")
+			addVoxelSym(m, Vector3.new(1.4, -0.2, -5.6), Vector3.new(1.75, 1.95, 0.65), u, hazardYellow, armorMat, "ClusterLip")
+			muzzleZ = -5.8 * u
+		elseif isNova then
+			-- Oversized Nova Demolisher heavy mortar mouth + glowing core bay
+			addVoxel(m, Vector3.new(0, 2.8, 0.2), Vector3.new(3.2, 1.8, 3.4), u, armedRed, Enum.Material.Neon, "NovaVolatileTank")
+			addVoxel(m, Vector3.new(0, -0.3, -4.1), Vector3.new(3.2, 2.8, 3.6), u, hazardDark, frameMat, "NovaMortar")
+			addVoxel(m, Vector3.new(0, -0.3, -6.0), Vector3.new(3.5, 3.1, 0.8), u, hazardYellow, armorMat, "NovaMortarRim")
+			muzzleZ = -6.2 * u
+		else
+			-- Standard wide voxel mortar chute
+			addVoxel(m, Vector3.new(0, -0.2, -3.8), Vector3.new(2.4, 2.2, 2.8), u, hazardDark, frameMat, "MortarChute")
+			addVoxel(m, Vector3.new(0, -0.2, -5.3), Vector3.new(2.7, 2.5, 0.7), u, hazardYellow, armorMat, "MortarRim")
+			muzzleZ = -5.5 * u
+		end
+
+	elseif resolvedId == "OmniverseEye" or resolvedId == "SingularityArchon" then
+		-- MYTHIC ENDGAME VOXEL MONOLITH DRONES
+		addVoxelSym(m, Vector3.new(4.2, 0.6, 0.4), Vector3.new(1.4, 5.2, 2.4), u, priCol, Enum.Material.Neon, "MythicWingA")
+		addVoxelSym(m, Vector3.new(5.8, -0.4, 1.2), Vector3.new(1.2, 3.8, 1.8), u, darkCol, frameMat, "MythicWingB")
+		addVoxel(m, Vector3.new(0, 3.8, 0), Vector3.new(2.4, 2.4, 2.4), u, glowCol, Enum.Material.Neon, "CrownCube")
+		addVoxel(m, Vector3.new(0, -0.2, -4.6), Vector3.new(2.2, 2.2, 4.4), u, darkCol, frameMat, "ApexBarrel")
+		addVoxel(m, Vector3.new(0, -0.2, -7.0), Vector3.new(2.5, 2.5, 0.9), u, glowCol, Enum.Material.Neon, "ApexTip")
+		muzzleZ = -7.2 * u
+
+	else
+		-- BasicDrone (Starter Tier 0 Voxel Scout)
+		addVoxelSym(m, Vector3.new(3.2, 0, 0.8), Vector3.new(1.6, 1.2, 2.6), u, lightCol, armorMat, "StarterWinglet")
+		addVoxel(m, Vector3.new(0, -0.2, -3.7), Vector3.new(1.3, 1.3, 2.8), u, darkCol, frameMat, "BasicBarrel")
+		addVoxel(m, Vector3.new(0, -0.2, -5.2), Vector3.new(1.4, 1.4, 0.6), u, glowCol, Enum.Material.Neon, "BasicTip")
+		muzzleZ = -5.3 * u
+	end
+
+	-- Muzzle attachment cleanly placed at the front tip (-Z)
 	local muzzle = Instance.new("Attachment")
 	muzzle.Name = "BeamMuzzle"
-	muzzle.Position = Vector3.new(0, 0, -2.5 * s)
+	muzzle.Position = Vector3.new(0, -0.2 * u, muzzleZ)
 	muzzle.Parent = body
 
-	-- Front Laser Emitter Lens
-	createPart({
-		Name = "DroneEye",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(1.1 * s, 2.1 * s, 2.1 * s),
-		CFrame = CFrame.new(0, 0, -1.9 * s) * CFrame.Angles(0, math.rad(90), 0),
-		Color = beamCol,
-		Material = Enum.Material.Neon,
-		Parent = m,
-	})
+	return m
+end
 
-	if companionId == "ScrapWelder" then
-		-- Industrial Salvage Box Chassis + Roll Cage + Twin Articulated Welding Torches
-		body.Shape = Enum.PartType.Block
-		body.Size = Vector3.new(4.0 * s, 3.2 * s, 4.4 * s)
-		body.Color = Color3.fromRGB(165, 130, 55)
-		body.Material = Enum.Material.DiamondPlate
-		for _, side in ipairs({ -1, 1 }) do
-			createPart({
-				Name = "WeldArm_" .. side,
-				Size = Vector3.new(0.8 * s, 0.8 * s, 4.2 * s),
-				CFrame = CFrame.new(side * 2.5 * s, -0.4 * s, -1.2 * s),
-				Color = Color3.fromRGB(72, 78, 92),
-				Material = Enum.Material.Concrete,
-				Parent = m,
-			})
-			createPart({
-				Name = "TorchTip_" .. side,
-				Shape = Enum.PartType.Ball,
-				Size = Vector3.new(1.1 * s, 1.1 * s, 1.1 * s),
-				CFrame = CFrame.new(side * 2.5 * s, -0.4 * s, -3.3 * s),
-				Color = beamCol,
-				Material = Enum.Material.Neon,
-				Parent = m,
-			})
-		end
-	elseif companionId == "SputnikMiner" then
-		-- Classic Spherical Sputnik with 4 Swept Radio Whiskers & Clamp Ring
-		createPart({
-			Name = "EquatorialBelt",
-			Shape = Enum.PartType.Cylinder,
-			Size = Vector3.new(0.6 * s, 4.8 * s, 4.8 * s),
-			CFrame = CFrame.Angles(0, 0, math.rad(90)),
-			Color = mainCol,
-			Material = Enum.Material.Concrete,
-			Parent = m,
-		})
-		for aIdx = 1, 4 do
-			local a = (aIdx / 4) * math.pi * 2 + 0.78
-			createPart({
-				Name = "Antenna_" .. aIdx,
-				Size = Vector3.new(0.28 * s, 0.28 * s, 5.2 * s),
-				CFrame = CFrame.new(math.cos(a) * 1.6 * s, math.sin(a) * 1.6 * s, 2.2 * s)
-					* CFrame.Angles(math.sin(a) * 0.35, -math.cos(a) * 0.35, 0),
-				Color = mainCol,
-				Material = Enum.Material.Limestone,
-				Parent = m,
-			})
-		end
-	elseif companionId == "BioScout" then
-		-- Botanical Spore-Pod with Leafy Canopy Dome & Glowing Bio-Tendrils
-		createPart({
-			Name = "BioCap",
-			Shape = Enum.PartType.Ball,
-			Size = Vector3.new(5.2 * s, 2.6 * s, 5.2 * s),
-			CFrame = CFrame.new(0, 1.4 * s, 0),
-			Color = mainCol,
-			Material = Enum.Material.LeafyGrass,
-			Parent = m,
-		})
-		for t = 1, 4 do
-			local a = (t / 4) * math.pi * 2
-			createPart({
-				Name = "SporeNode_" .. t,
-				Shape = Enum.PartType.Ball,
-				Size = Vector3.new(1.3 * s, 1.3 * s, 1.3 * s),
-				CFrame = CFrame.new(math.cos(a) * 2.4 * s, -0.6 * s, math.sin(a) * 2.4 * s),
-				Color = beamCol,
-				Material = Enum.Material.Neon,
-				Parent = m,
-			})
-		end
-	elseif companionId == "QuartzCutter" then
-		-- Angular Crystal Twin-Saw Frame
-		for _, side in ipairs({ -1, 1 }) do
-			createPart({
-				Name = "SawDisc_" .. side,
-				Shape = Enum.PartType.Cylinder,
-				Size = Vector3.new(0.45 * s, 4.4 * s, 4.4 * s),
-				CFrame = CFrame.new(side * 2.8 * s, 0, -0.8 * s) * CFrame.Angles(0, 0, math.rad(90)),
-				Color = mainCol,
-				Material = Enum.Material.Neon,
-				Parent = m,
-			})
-			createWedge({
-				Name = "CrystalPylon_" .. side,
-				Size = Vector3.new(1.2 * s, 3.8 * s, 2.4 * s),
-				CFrame = CFrame.new(side * 2.2 * s, 1.2 * s, 0.5 * s),
-				Color = mainCol,
-				Material = Enum.Material.Glacier,
-				Parent = m,
-			})
-		end
-	elseif companionId == "SolarRelay" then
-		-- Golden Helios Cube with 4 Cruciform Solar Sail Wings
-		body.Shape = Enum.PartType.Block
-		body.Size = Vector3.new(3.8 * s, 3.8 * s, 3.8 * s)
-		body.CFrame = CFrame.Angles(math.rad(45), 0, math.rad(45))
-		for w = 1, 4 do
-			local a = (w / 4) * math.pi * 2
-			createPart({
-				Name = "SolarSail_" .. w,
-				Size = Vector3.new(4.8 * s, 0.35 * s, 2.2 * s),
-				CFrame = CFrame.Angles(0, 0, a) * CFrame.new(4.2 * s, 0, 0) * CFrame.Angles(math.rad(22), 0, 0),
-				Color = mainCol,
-				Material = Enum.Material.Neon,
-				Parent = m,
-			})
-		end
-	elseif companionId == "CryoSentinel" then
-		-- Glacial Monolith Core with 3 Orbiting Ice Shards & Long Cryo-Lance Barrel
-		createPart({
-			Name = "CryoLanceBarrel",
-			Shape = Enum.PartType.Cylinder,
-			Size = Vector3.new(4.5 * s, 1.1 * s, 1.1 * s),
-			CFrame = CFrame.new(0, 0, -3.2 * s) * CFrame.Angles(0, math.rad(90), 0),
-			Color = mainCol,
-			Material = Enum.Material.Glacier,
-			Parent = m,
-		})
-		for k = 1, 3 do
-			local a = (k / 3) * math.pi * 2
-			createWedge({
-				Name = "CryoFin_" .. k,
-				Size = Vector3.new(1.0 * s, 4.6 * s, 2.2 * s),
-				CFrame = CFrame.Angles(0, 0, a) * CFrame.new(0, 3.2 * s, 0.6 * s),
-				Color = mainCol,
-				Material = Enum.Material.Glacier,
-				Parent = m,
-			})
-		end
-	elseif companionId == "PulsarValkyrie" then
-		-- Swept-Wing Strike Fighter with Twin Plasma Cannons
-		for _, side in ipairs({ -1, 1 }) do
-			createWedge({
-				Name = "ValkyrieWing_" .. side,
-				Size = Vector3.new(0.6 * s, 3.4 * s, 6.2 * s),
-				CFrame = CFrame.new(side * 3.8 * s, 0.3 * s, 0.6 * s) * CFrame.Angles(0, math.rad(side * 18), math.rad(side * 75)),
-				Color = mainCol,
-				Material = Enum.Material.Slate,
-				Parent = m,
-			})
-			createPart({
-				Name = "ValkyrieCannon_" .. side,
-				Shape = Enum.PartType.Cylinder,
-				Size = Vector3.new(4.2 * s, 0.85 * s, 0.85 * s),
-				CFrame = CFrame.new(side * 2.4 * s, -0.8 * s, -2.0 * s) * CFrame.Angles(0, math.rad(90), 0),
-				Color = beamCol,
-				Material = Enum.Material.Neon,
-				Parent = m,
-			})
-		end
-	elseif companionId == "DarkMatterCherub" then
-		-- Void-Rift Excavator: Glowing Singularity Core inside 4 Graviton Claws
-		body.Color = Color3.fromRGB(28, 22, 42)
-		body.Material = Enum.Material.Basalt
-		createPart({
-			Name = "VoidHalo",
-			Shape = Enum.PartType.Cylinder,
-			Size = Vector3.new(0.5 * s, 6.8 * s, 6.8 * s),
-			CFrame = CFrame.Angles(math.rad(25), 0, math.rad(90)),
-			Color = mainCol,
-			Material = Enum.Material.Neon,
-			Parent = m,
-		})
-		for c = 1, 4 do
-			local a = (c / 4) * math.pi * 2 + 0.4
-			createWedge({
-				Name = "GravitonClaw_" .. c,
-				Size = Vector3.new(0.9 * s, 3.6 * s, 1.8 * s),
-				CFrame = CFrame.Angles(0, 0, a) * CFrame.new(0, 2.8 * s, -1.6 * s) * CFrame.Angles(math.rad(-25), 0, 0),
-				Color = mainCol,
-				Material = Enum.Material.Slate,
-				Parent = m,
-			})
-		end
-	elseif companionId == "QuantumSeraph" then
-		-- LEGENDARY: 6 Seraphic Energy Wings + Dual Interlocking Gyro Rings
-		for r = 1, 2 do
-			createPart({
-				Name = "SeraphRing_" .. r,
-				Shape = Enum.PartType.Cylinder,
-				Size = Vector3.new(0.45 * s, 6.6 * s, 6.6 * s),
-				CFrame = CFrame.Angles(math.rad(r == 1 and 35 or -35), 0, math.rad(90)),
-				Color = mainCol,
-				Material = Enum.Material.Neon,
-				Parent = m,
-			})
-		end
-		for w = 1, 6 do
-			local side = (w <= 3) and -1 or 1
-			local idx = ((w - 1) % 3) + 1
-			createWedge({
-				Name = "SeraphFeather_" .. w,
-				Size = Vector3.new(0.5 * s, (4.8 - idx * 0.7) * s, 1.6 * s),
-				CFrame = CFrame.new(side * (2.6 + idx * 1.1) * s, (1.4 - idx * 0.6) * s, 0.8 * s)
-					* CFrame.Angles(0, 0, math.rad(side * (42 + idx * 14))),
-				Color = mainCol,
-				Material = Enum.Material.Neon,
-				Parent = m,
-			})
-		end
-	elseif companionId == "ChronosDragon" then
-		-- LEGENDARY: Sculpted Golden Dragon Head + Horns + Side Wyrm Wings
-		body.Size = Vector3.new(4.6 * s, 4.0 * s, 5.6 * s)
-		body.Color = Color3.fromRGB(48, 38, 28)
-		for _, side in ipairs({ -1, 1 }) do
-			createWedge({
-				Name = "DragonHorn_" .. side,
-				Size = Vector3.new(1.1 * s, 4.8 * s, 1.4 * s),
-				CFrame = CFrame.new(side * 1.6 * s, 2.4 * s, 1.4 * s) * CFrame.Angles(math.rad(-38), 0, math.rad(-side * 18)),
-				Color = mainCol,
-				Material = Enum.Material.Neon,
-				Parent = m,
-			})
-			createWedge({
-				Name = "DragonWing_" .. side,
-				Size = Vector3.new(0.7 * s, 4.2 * s, 7.2 * s),
-				CFrame = CFrame.new(side * 4.4 * s, 0.8 * s, 0.8 * s) * CFrame.Angles(0, math.rad(side * 15), math.rad(side * 72)),
-				Color = mainCol,
-				Material = Enum.Material.Sandstone,
-				Parent = m,
-			})
-		end
-	else
-		-- MYTHIC (OmniverseEye / SingularityArchon): Colossal Multi-Ringed Apex Dreadnought
-		body.Size = Vector3.new(5.2 * s, 5.2 * s, 5.2 * s)
-		body.Material = Enum.Material.Neon
-		body.Color = mainCol
-		for r = 1, 3 do
-			createPart({
-				Name = "MythicGyro_" .. r,
-				Shape = Enum.PartType.Cylinder,
-				Size = Vector3.new(0.55 * s, (7.4 + r * 0.8) * s, (7.4 + r * 0.8) * s),
-				CFrame = CFrame.Angles(math.rad(r * 55), math.rad(r * 35), math.rad(90)),
-				Color = (r == 2) and Color3.fromRGB(32, 34, 48) or mainCol,
-				Material = (r == 2) and Enum.Material.Basalt or Enum.Material.Neon,
-				Parent = m,
-			})
-		end
-		for p = 1, 6 do
-			local a = (p / 6) * math.pi * 2
-			createWedge({
-				Name = "MythicCrownSpike_" .. p,
-				Size = Vector3.new(1.1 * s, 4.8 * s, 1.8 * s),
-				CFrame = CFrame.Angles(0, 0, a) * CFrame.new(0, 4.6 * s, 0),
-				Color = mainCol,
-				Material = Enum.Material.Neon,
-				Parent = m,
-			})
-		end
-	end
+-- ============================================================================
+-- 2C. VOXEL STICKY BOMB MODEL BUILDER (Claws + Hazard Cube + Blinking Neon LED)
+-- ============================================================================
+function PlanetGenerator.BuildStickyBombModel(bombColor: Color3?, scale: number?): Model
+	local s = scale or 1.0
+	local u = 0.55 * s
+	local mainCol = bombColor or Color3.fromRGB(255, 85, 45)
+	local m = Instance.new("Model")
+	m.Name = "VoxelStickyBomb"
+
+	local core = addVoxel(m, Vector3.new(0, 0, 0), Vector3.new(2.8, 2.2, 2.8), u, Color3.fromRGB(28, 32, 44), Enum.Material.Slate, "BombCore")
+	m.PrimaryPart = core
+
+	-- Hazard yellow accent trim collar
+	addVoxel(m, Vector3.new(0, 0.35, 0), Vector3.new(3.1, 0.65, 3.1), u, Color3.fromRGB(255, 195, 42), Enum.Material.SmoothPlastic, "HazardTrim")
+
+	-- 4 magnetic voxel claws on the corners
+	addVoxelSym(m, Vector3.new(1.4, -0.9, 1.4), Vector3.new(0.9, 1.1, 0.9), u, Color3.fromRGB(72, 82, 105), Enum.Material.Concrete, "MagnetClawF")
+	addVoxelSym(m, Vector3.new(1.4, -0.9, -1.4), Vector3.new(0.9, 1.1, 0.9), u, Color3.fromRGB(72, 82, 105), Enum.Material.Concrete, "MagnetClawB")
+
+	-- Blinking Neon Detonator LED on top
+	addVoxel(m, Vector3.new(0, 1.45, 0), Vector3.new(1.3, 0.95, 1.3), u, mainCol, Enum.Material.Neon, "BombLED")
 
 	return m
 end

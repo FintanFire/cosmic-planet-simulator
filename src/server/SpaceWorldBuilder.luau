@@ -762,8 +762,8 @@ function SpaceWorldBuilder.BuildCosmos(): Model
 		460
 	)
 
-	-- 4 Physical Tiered Drone Roll Pods around the East Plaza (Display 3D Drone Models inside!)
-	local podShowcaseDrones = { "SputnikMiner", "QuartzCutter", "QuantumSeraph", "OmniverseEye" }
+	-- 4 Physical Tiered Drone Roll Pods around the East Plaza (Display 3D Basic Voxel Drones inside!)
+	local podShowcaseDrones = { "BasicDrone", "BasicDrone", "BasicDrone", "BasicDrone" }
 	for pIdx, podDef in ipairs(PlanetConfig.CompanionPods) do
 		local pa = ((pIdx - 2.5) * 0.52) + math.pi -- Arc facing inward toward the Hub bridge (-X)
 		local podPos = eastPos + Vector3.new(math.cos(pa) * 46, 0, math.sin(pa) * 46)
@@ -799,7 +799,7 @@ function SpaceWorldBuilder.BuildCosmos(): Model
 		})
 
 		-- Place a 3D Hologram Drone inside each Roll Pod
-		local sampleDroneId = podShowcaseDrones[pIdx] or "ScrapWelder"
+		local sampleDroneId = podShowcaseDrones[pIdx] or "BasicDrone"
 		local sampleModel = PlanetGenerator.BuildCompanionDroneModel(sampleDroneId, pIdx == 4, pIdx * 5)
 		sampleModel.Name = "PodDisplayDrone_" .. podDef.Id
 		sampleModel:PivotTo(CFrame.new(podPos + Vector3.new(0, 16, 0)) * CFrame.Angles(0, pa, 0))
@@ -1302,6 +1302,52 @@ function SpaceWorldBuilder.UpdateProceduralChunks(playerPositions: { Vector3 })
 			activeChunks[key] = nil
 		end
 	end
+end
+
+function SpaceWorldBuilder.SpawnAdminTestAsteroids(originPos: Vector3, forwardDir: Vector3?): number
+	if not nodesContainer then
+		return 0
+	end
+	local oldChunk = nodesContainer:FindFirstChild("SpaceChunk_AdminTest")
+	if oldChunk then
+		oldChunk:Destroy()
+	end
+
+	local chunkModel = makePersistentModel("SpaceChunk_AdminTest", nodesContainer)
+	local rng = Random.new(os.clock() * 1000)
+	local rawFwd = (typeof(forwardDir) == "Vector3") and Vector3.new(forwardDir.X, 0, forwardDir.Z) or Vector3.new(0, 0, -1)
+	local fwd = (rawFwd.Magnitude > 0.05) and rawFwd.Unit or Vector3.new(0, 0, -1)
+	local right = fwd:Cross(Vector3.yAxis)
+	if right.Magnitude < 0.01 then
+		right = Vector3.xAxis
+	else
+		right = right.Unit
+	end
+
+	local z1 = PlanetConfig.DeepSpaceZones[1]
+	local targets = {
+		-- Close spread row (85 studs ahead): fast & spread shots
+		{ Type = "Aluminum", Fwd = 85, Right = -28, Up = 0 },
+		{ Type = "Iron", Fwd = 85, Right = 0, Up = 0 },
+		{ Type = "Copper", Fwd = 85, Right = 28, Up = 0 },
+		-- Tight mid cluster (165 studs ahead): heavy splash & sticky bomb stacking
+		{ Type = "Silver", Fwd = 165, Right = -14, Up = 0 },
+		{ Type = "Gold", Fwd = 165, Right = 0, Up = 0 },
+		{ Type = "Platinum", Fwd = 165, Right = 14, Up = 0 },
+		-- Far sniper target (520 studs ahead): Long-Range Drone flight & sniping
+		{ Type = "Diamond", Fwd = 520, Right = 0, Up = 0 },
+	}
+
+	for _, t in ipairs(targets) do
+		local pos = originPos + fwd * t.Fwd + right * t.Right + Vector3.new(0, t.Up, 0)
+		local matDef = PlanetConfig.MaterialNodes[t.Type] or PlanetConfig.MaterialNodes.Iron
+		local baseCol = COLLECTIBLE_COLORS[t.Type] or z1.ThemeColor
+		local colModel = PlanetGenerator.BuildSpaceCollectibleModel(t.Type, pos, matDef.BaseTitle or (t.Type .. " Asteroid"), baseCol, 1)
+		attachNodeAttributes(colModel, t.Type, z1, rng)
+		colModel.Parent = chunkModel
+	end
+
+	return #targets
 end
 
 return SpaceWorldBuilder

@@ -35,6 +35,10 @@ local CompanionActionEvent = makeRemoteEvent("CompanionAction")
 local BuyDroneSlotEvent = makeRemoteEvent("BuyDroneSlot")
 local SetDroneTargetEvent = makeRemoteEvent("SetDroneTarget")
 local DroneBeamFXEvent = makeRemoteEvent("DroneBeamFX")
+local EvolveDronePathEvent = makeRemoteEvent("EvolveDronePath")
+local DetonateStickyBombsEvent = makeRemoteEvent("DetonateStickyBombs")
+local StickyBombFXEvent = makeRemoteEvent("StickyBombFX")
+local AdminCommandEvent = makeRemoteEvent("AdminCommand")
 local BuyBoosterEvent = makeRemoteEvent("BuyBooster")
 local ClaimPlaytimeGiftEvent = makeRemoteEvent("ClaimPlaytimeGift")
 local RedeemPromoCodeEvent = makeRemoteEvent("RedeemPromoCode")
@@ -77,6 +81,19 @@ export type CompanionInstance = {
 	Equipped: boolean,
 }
 
+export type StickyBombRecord = {
+	BombId: string,
+	TargetModel: Model?,
+	TargetRoot: BasePart?,
+	LocalOffset: Vector3,
+	WorldPos: Vector3,
+	Damage: number,
+	BlastRadius: number,
+	Color: Color3,
+	PlacedAt: number,
+	DrillPower: number,
+}
+
 type PlayerState = {
 	HasCompletedSetup: boolean,
 	Resources: {
@@ -101,6 +118,7 @@ type PlayerState = {
 	DronesHatched: number,
 	DroneLevels: number,
 	DroneSlotLevel: number,
+	DronePathClassId: string,
 	PlaytimeSeconds: number,
 	ClaimedPlaytimeGifts: { [number]: boolean },
 	RedeemedCodes: { [string]: boolean },
@@ -141,6 +159,8 @@ type PlayerState = {
 	LockedTarget: Model?,
 	LastDrillWarnTime: number,
 	LastFireTime: number,
+	DroneFireTimes: { [string]: number },
+	StickyBombs: { StickyBombRecord },
 }
 
 local playerStates: { [Player]: PlayerState } = {}
@@ -557,6 +577,8 @@ local function syncStateToClient(player: Player)
 		ShardUpgrades = state.ShardUpgrades,
 		Companions = state.Companions,
 		MaxEquippedDrones = state.MaxEquippedDrones,
+		DronePathClassId = state.DronePathClassId,
+		StickyBombCount = #state.StickyBombs,
 		Look = state.Look,
 		SpeciesId = state.SpeciesId,
 		UnlockedEvolutions = state.UnlockedEvolutions,
@@ -697,6 +719,7 @@ local function onPlayerAdded(player: Player)
 		DronesHatched = 1,
 		DroneLevels = 0,
 		DroneSlotLevel = 0,
+		DronePathClassId = "BasicDrone",
 		PlaytimeSeconds = 0,
 		ClaimedPlaytimeGifts = {},
 		RedeemedCodes = {},
@@ -716,8 +739,8 @@ local function onPlayerAdded(player: Player)
 		},
 		Companions = {
 			{
-				Uid = "Drone_Starter",
-				Id = "ScrapWelder",
+				Uid = "Drone_PathMain",
+				Id = "BasicDrone",
 				Level = 1,
 				IsGolden = false,
 				Equipped = true,
@@ -767,6 +790,8 @@ local function onPlayerAdded(player: Player)
 		LockedTarget = nil,
 		LastDrillWarnTime = 0,
 		LastFireTime = 0,
+		DroneFireTimes = {},
+		StickyBombs = {},
 	}
 
 	syncHiddenCharacterToPlanet(player, HUB_SPAWN_POS)
@@ -776,9 +801,13 @@ end
 
 local function onPlayerRemoving(player: Player)
 	local state = playerStates[player]
-	if state and state.PlanetModel then
-		state.PlanetModel:Destroy()
+	if state then
+		state.StickyBombs = {}
+		if state.PlanetModel then
+			state.PlanetModel:Destroy()
+		end
 	end
+	StickyBombFXEvent:FireAllClients("ClearPlayer", player.UserId)
 	playerStates[player] = nil
 end
 
@@ -1211,19 +1240,21 @@ HatchCompanionPodEvent.OnServerEvent:Connect(function(player: Player, podId: str
 		nextCompanionUid += 1
 		local uid = "Drone_" .. tostring(nextCompanionUid)
 		local autoEquip = (getEquippedCount(state) < state.MaxEquippedDrones)
+		local startLvl = (podDef :: any).StartLevel or 1
+		local isGold = ((podDef :: any).GiveGolden == true)
 
 		table.insert(state.Companions, {
 			Uid = uid,
 			Id = pickedId,
-			Level = 1,
-			IsGolden = false,
+			Level = startLvl,
+			IsGolden = isGold,
 			Equipped = autoEquip,
 		})
 		state.DronesHatched += 1
 
 		local cDef = PlanetConfig.Companions[pickedId]
 		if cDef then
-			table.insert(hatchedNames, string.format("%s [%s]", cDef.Name, cDef.Rarity))
+			table.insert(hatchedNames, string.format("%s%s Lv.%d", isGold and "★ " or "", cDef.Name, startLvl))
 		end
 	end
 
@@ -1483,83 +1514,48 @@ local function awardDestroyedNodeLoot(player: Player, state: PlayerState, collec
 	syncStateToClient(player)
 end
 
-SetDroneTargetEvent.OnServerEvent:Connect(function(player: Player, targetModelArg: Instance?, aimPosArg: Vector3?)
-	local state = playerStates[player]
-	if not state or not state.HasCompletedSetup then
+local nextStickyBombSeq = 0
+
+local function cleanupBombsOnDestroyedTarget(state: PlayerState, destroyedModel: Model)
+	if #state.StickyBombs == 0 then
 		return
 	end
-	if (state.Rates.DroneDamage or 0) <= 0 then
-		return
+	local kept = {}
+	local removedAny = false
+	for _, b in ipairs(state.StickyBombs) do
+		if b.TargetModel == destroyedModel then
+			removedAny = true
+		else
+			table.insert(kept, b)
+		end
+	end
+	if removedAny then
+		state.StickyBombs = kept
+		StickyBombFXEvent:FireAllClients("RemoveByTarget", 0, destroyedModel)
+	end
+end
+
+local function applyDamageToNode(
+	player: Player,
+	state: PlayerState,
+	targetModel: Model,
+	targetRoot: BasePart,
+	rawTickDmg: number,
+	drillPower: number
+): (number, boolean)
+	if targetRoot:GetAttribute("Available") ~= true or targetModel:GetAttribute("Available") == false then
+		return 0, false
 	end
 
 	local now = os.clock()
-	local minCooldown = math.max(0.04, ((state.Rates.FireCooldown or 0.45) * 0.85))
-	if (now - (state.LastFireTime or 0)) < minCooldown then
-		return
-	end
-	state.LastFireTime = now
-
-	local pPos = state.PlanetPosition
-	local maxFireRange = 260
-	local targetModel: Model? = nil
-	local targetRoot: BasePart? = nil
-
-	if targetModelArg and targetModelArg:IsA("Model") and targetModelArg.Parent and targetModelArg ~= state.PlanetModel then
-		local r = targetModelArg.PrimaryPart
-		if r and (r.Position - pPos).Magnitude <= maxFireRange then
-			local isAvailNode = (r:GetAttribute("IsSpaceCollectible") == true and r:GetAttribute("Available") == true)
-			local isRival = (targetModelArg.Parent == planetsFolder)
-			if isAvailNode or isRival then
-				targetModel = targetModelArg
-				targetRoot = r
-			end
-		end
-	end
-
-	if not targetModel and typeof(aimPosArg) == "Vector3" then
-		local bestDist = 24
-		for _, chunkModel in ipairs(nodesFolder:GetChildren()) do
-			if chunkModel:IsA("Model") then
-				for _, collectible in ipairs(chunkModel:GetChildren()) do
-					if collectible:IsA("Model") then
-						local r = collectible.PrimaryPart
-						if r and r:GetAttribute("Available") == true and (r.Position - pPos).Magnitude <= maxFireRange then
-							local d = (r.Position - aimPosArg).Magnitude
-							if d <= bestDist then
-								bestDist = d
-								targetModel = collectible
-								targetRoot = r
-							end
-						end
-					end
-				end
-			end
-		end
-	end
-
-	if not (targetModel and targetRoot) then
-		return
-	end
-
-	local totalAtkDmg = state.Rates.DroneDamage
-	local hitPos = (typeof(aimPosArg) == "Vector3") and aimPosArg or targetRoot.Position
-
-	if targetModel.Parent == planetsFolder then
-		local dmg = math.max(1, math.floor(totalAtkDmg * state.Rates.DrillSpeed * 0.25))
-		DroneBeamFXEvent:FireAllClients(player.UserId, targetModel, dmg, false, hitPos)
-		if not state.Rates.InHubSanctuary and math.random() <= 0.30 then
-			local siphonOre = math.max(1, math.floor(state.Rates.DrillPower * 0.8))
-			state.Resources.Minerals += siphonOre
-			syncStateToClient(player)
-		end
-		return
-	end
-
 	local curHP = (tonumber(targetModel:GetAttribute("HP")) or tonumber(targetRoot:GetAttribute("HP")) or 35)
+	if curHP <= 0 then
+		return 0, false
+	end
 	local maxHP = (tonumber(targetModel:GetAttribute("MaxHP")) or tonumber(targetRoot:GetAttribute("MaxHP")) or 35)
 	local reqDrill = (tonumber(targetRoot:GetAttribute("ReqDrill")) or 1)
 
-	local drillRatio = state.Rates.DrillPower / math.max(1, reqDrill)
+	local drillRatio = math.max(1, drillPower) / math.max(1, reqDrill)
 	local efficiency = 1.0
 	if drillRatio < 1.0 then
 		efficiency = math.max(0.12, drillRatio)
@@ -1568,9 +1564,9 @@ SetDroneTargetEvent.OnServerEvent:Connect(function(player: Player, targetModelAr
 			NotificationEvent:FireClient(
 				player,
 				string.format(
-					"Hard Material (Req %d Drill Power, You have %d)! Roll or Level Up Drones for full drill speed!",
+					"Hard Material (Req %d Drill Power, You have %d)! Evolve or Level Up Drones for full drill speed!",
 					reqDrill,
-					state.Rates.DrillPower
+					drillPower
 				),
 				Color3.fromRGB(255, 175, 65)
 			)
@@ -1579,20 +1575,18 @@ SetDroneTargetEvent.OnServerEvent:Connect(function(player: Player, targetModelAr
 		efficiency = math.min(1.65, 1.0 + math.log10(math.max(1, drillRatio)) * 0.35)
 	end
 
-	local rawTickDmg = totalAtkDmg * state.Rates.DrillSpeed * 0.25 * efficiency
-	local dmg = math.max(1, math.floor(rawTickDmg + 0.5))
+	local dmg = math.max(1, math.floor(rawTickDmg * efficiency + 0.5))
 	local newHP = math.max(0, curHP - dmg)
 
 	targetModel:SetAttribute("HP", newHP)
 	targetRoot:SetAttribute("HP", newHP)
 
 	local destroyed = (newHP <= 0)
-	DroneBeamFXEvent:FireAllClients(player.UserId, targetModel, dmg, destroyed, hitPos)
-
 	if destroyed then
 		targetModel:SetAttribute("Available", false)
 		targetRoot:SetAttribute("Available", false)
 		setModelVisibility(targetModel, false)
+		cleanupBombsOnDestroyedTarget(state, targetModel)
 		awardDestroyedNodeLoot(player, state, targetModel, targetRoot)
 
 		local savedModel = targetModel
@@ -1608,6 +1602,660 @@ SetDroneTargetEvent.OnServerEvent:Connect(function(player: Player, targetModelAr
 			end
 		end)
 	end
+
+	return dmg, destroyed
+end
+
+-- Helper: find nearby available asteroids around a world center within radius
+local function findAvailableNodesInRadius(center: Vector3, radius: number, excludeModel: Model?): { { Model: Model, Root: BasePart, Dist: number } }
+	local results = {}
+	for _, chunkModel in ipairs(nodesFolder:GetChildren()) do
+		if chunkModel:IsA("Model") then
+			for _, collectible in ipairs(chunkModel:GetChildren()) do
+				if collectible:IsA("Model") and collectible ~= excludeModel then
+					local r = collectible.PrimaryPart
+					if r and r:GetAttribute("Available") == true then
+						local d = (r.Position - center).Magnitude
+						if d <= radius then
+							table.insert(results, { Model = collectible, Root = r, Dist = d })
+						end
+					end
+				end
+			end
+		end
+	end
+	return results
+end
+
+-- Point-to-segment distance helper for SpreadShot rays
+local function distPointToSegment(p: Vector3, a: Vector3, b: Vector3): number
+	local ab = b - a
+	local abLenSq = ab:Dot(ab)
+	if abLenSq < 0.001 then
+		return (p - a).Magnitude
+	end
+	local t = math.clamp((p - a):Dot(ab) / abLenSq, 0, 1)
+	local closest = a + ab * t
+	return (p - closest).Magnitude
+end
+
+local function isValidNextChoice(fromClassId: string, targetClassId: string): boolean
+	local node = (PlanetConfig.DroneEvolutionTree :: any)[fromClassId]
+	if not node or not node.NextChoices then
+		return false
+	end
+	for _, cid in ipairs(node.NextChoices) do
+		if cid == targetClassId then
+			return true
+		end
+	end
+	return false
+end
+
+-- H2B-EVO. Diep.io First-Path Evolution Handler (Basic Drone -> 5 Specialized Paths at Lv.5)
+EvolveDronePathEvent.OnServerEvent:Connect(function(player: Player, targetClassId: string, targetDroneUid: string?)
+	local state = playerStates[player]
+	if not state or not state.HasCompletedSetup or type(targetClassId) ~= "string" then
+		return
+	end
+
+	local targetDef = PlanetConfig.Companions[targetClassId]
+	local treeNode = (PlanetConfig.DroneEvolutionTree :: any)[targetClassId]
+	if not targetDef or not treeNode then
+		return
+	end
+
+	local unlockLvl = treeNode.UnlockLevel or targetDef.UnlockLevel or 5
+	if (state.Level or 1) < unlockLvl then
+		NotificationEvent:FireClient(
+			player,
+			string.format("Reach Level %d to unlock %s!", unlockLvl, targetDef.Name),
+			Color3.fromRGB(255, 95, 95)
+		)
+		return
+	end
+
+	local chosenDrone: CompanionInstance? = nil
+	if type(targetDroneUid) == "string" and #targetDroneUid > 0 and targetDroneUid ~= "Evolve" then
+		for _, d in ipairs(state.Companions) do
+			if d.Uid == targetDroneUid and isValidNextChoice(d.Id, targetClassId) then
+				chosenDrone = d
+				break
+			end
+		end
+	end
+	if not chosenDrone then
+		for _, d in ipairs(state.Companions) do
+			if d.Uid == "Drone_PathMain" and isValidNextChoice(d.Id, targetClassId) then
+				chosenDrone = d
+				break
+			end
+		end
+	end
+	if not chosenDrone then
+		for _, d in ipairs(state.Companions) do
+			if d.Equipped and isValidNextChoice(d.Id, targetClassId) then
+				chosenDrone = d
+				break
+			end
+		end
+	end
+	if not chosenDrone then
+		for _, d in ipairs(state.Companions) do
+			if isValidNextChoice(d.Id, targetClassId) then
+				chosenDrone = d
+				break
+			end
+		end
+	end
+
+	if not chosenDrone then
+		NotificationEvent:FireClient(
+			player,
+			"You need an unevolved Basic Drone to choose a path! Build another in DRONE SHOP.",
+			Color3.fromRGB(255, 165, 65)
+		)
+		return
+	end
+
+	chosenDrone.Id = targetClassId
+	if not chosenDrone.Equipped and getEquippedCount(state) < state.MaxEquippedDrones then
+		chosenDrone.Equipped = true
+	end
+	if chosenDrone.Uid == "Drone_PathMain" then
+		state.DronePathClassId = targetClassId
+	end
+
+	syncStateToClient(player)
+	NotificationEvent:FireClient(
+		player,
+		string.format("🧬 PATH CHOSEN: Basic Drone -> %s (%s)!", targetDef.Name, targetDef.RoleTag or ""),
+		targetDef.Color or Color3.fromRGB(85, 240, 165)
+	)
+end)
+
+-- H2C. Per-Drone Mouse-Aim Combat Handler (Rapid, Heavy, Long-Range, Spread, Sticky Bombs!)
+SetDroneTargetEvent.OnServerEvent:Connect(function(
+	player: Player,
+	targetModelArg: Instance?,
+	aimPosArg: Vector3?,
+	droneUidArg: string?,
+	aimDirArg: Vector3?
+)
+	local state = playerStates[player]
+	if not state or not state.HasCompletedSetup then
+		return
+	end
+
+	-- Resolve which equipped Drone is firing
+	local firingDrone: CompanionInstance? = nil
+	if type(droneUidArg) == "string" then
+		for _, d in ipairs(state.Companions) do
+			if d.Uid == droneUidArg and d.Equipped then
+				firingDrone = d
+				break
+			end
+		end
+	end
+	if not firingDrone then
+		for _, d in ipairs(state.Companions) do
+			if d.Equipped then
+				firingDrone = d
+				break
+			end
+		end
+	end
+	if not firingDrone then
+		return
+	end
+
+	local dStats = PlanetConfig.GetDroneStats(firingDrone.Id, firingDrone.Level, firingDrone.IsGolden)
+	local reloadLvl = state.PlanetUpgrades.DroneReloadSpeed or 0
+	local effectiveCooldown = math.max(0.05, dStats.FireCooldown / (1 + reloadLvl * 0.18))
+	local now = os.clock()
+	local lastShot = state.DroneFireTimes[firingDrone.Uid] or 0
+	if (now - lastShot) < (effectiveCooldown * 0.78) then
+		return
+	end
+	state.DroneFireTimes[firingDrone.Uid] = now
+
+	-- Compute this drone's scaled attack multiplier
+	local droneAtkLvl = state.PlanetUpgrades.DroneAttackDamage or 0
+	local droneAtkMult = (1 + droneAtkLvl * 0.30) * math.pow(1.20, math.floor(droneAtkLvl / 5))
+	local levelMult = 1 + ((state.Level or 1) - 1) * 0.12
+	local shardFleetLvl = state.ShardUpgrades.ExtraDroneSlots or 0
+	local shardFleetMult = 1 + shardFleetLvl * 0.25
+	local permValueLvl = state.ShardUpgrades.PermValue or state.ShardUpgrades.PermDrill or 0
+	local dmgMult = droneAtkMult * levelMult * shardFleetMult * (1 + permValueLvl * 0.5) * math.pow(1.6, state.Ascensions)
+
+	local pPos = state.PlanetPosition
+	local maxRange = dStats.Range or 260
+	local style = dStats.ProjectileStyle or "Standard"
+	local droneDrill = math.max(state.Rates.DrillPower or 1, dStats.DrillPower)
+
+	local targetModel: Model? = nil
+	local targetRoot: BasePart? = nil
+	if targetModelArg and targetModelArg:IsA("Model") and targetModelArg.Parent and targetModelArg ~= state.PlanetModel then
+		local r = targetModelArg.PrimaryPart
+		if r and (r.Position - pPos).Magnitude <= (maxRange + 35) then
+			local isAvailNode = (r:GetAttribute("IsSpaceCollectible") == true and r:GetAttribute("Available") == true)
+			local isRival = (targetModelArg.Parent == planetsFolder)
+			if isAvailNode or isRival then
+				targetModel = targetModelArg
+				targetRoot = r
+			end
+		end
+	end
+
+	local aimPos = (typeof(aimPosArg) == "Vector3" and aimPosArg.X == aimPosArg.X) and aimPosArg or (pPos + Vector3.new(0, 0, -90))
+	local rawAimVec = aimPos - pPos
+	local aimDist = rawAimVec.Magnitude
+	local aimDir = (typeof(aimDirArg) == "Vector3" and aimDirArg.Magnitude > 0.01) and aimDirArg.Unit
+		or ((aimDist > 0.5) and rawAimVec.Unit or Vector3.new(0, 0, -1))
+	local clampedAimPos = pPos + aimDir * math.min(maxRange, math.max(20, aimDist))
+
+	-- Find nearest asteroid near cursor if client passed aimPos near one
+	if not targetModel then
+		local nearNodes = findAvailableNodesInRadius(clampedAimPos, 24, nil)
+		local bestD = math.huge
+		for _, item in ipairs(nearNodes) do
+			if (item.Root.Position - pPos).Magnitude <= (maxRange + 35) and item.Dist < bestD then
+				bestD = item.Dist
+				targetModel = item.Model
+				targetRoot = item.Root
+			end
+		end
+	end
+
+	-- ------------------------------------------------------------------------
+	-- STYLE A: STICKY BOMB LAUNCHER (Sticks onto Asteroids or Space Mines!)
+	-- ------------------------------------------------------------------------
+	if style == "StickyBomb" then
+		local count = dStats.ProjectilesPerShot or 1
+		local maxBombs = math.max(12, dStats.MaxStickyBombs or 24)
+		local bombDmg = math.max(12, math.floor(dStats.BombBaseDamage * dmgMult + 0.5))
+		local tapDmg = math.max(1, math.floor(dStats.Damage * dmgMult * 0.25 + 0.5))
+		local scale = (firingDrone.Id == "NovaDemolisher") and 1.45 or 1.0
+		local blastRadius = dStats.BlastRadius or 32
+
+		for shotIdx = 1, count do
+			if #state.StickyBombs >= maxBombs then
+				local oldest = table.remove(state.StickyBombs, 1)
+				if oldest then
+					StickyBombFXEvent:FireAllClients("Remove", player.UserId, { BombId = oldest.BombId })
+				end
+			end
+
+			nextStickyBombSeq += 1
+			local bombId = string.format("%d_%d", player.UserId, nextStickyBombSeq)
+			local attachRoot: BasePart? = nil
+			local attachModel: Model? = nil
+			local localOff = Vector3.zero
+			local worldPos = clampedAimPos + Vector3.new((math.random() - 0.5) * 6, (math.random() - 0.5) * 4, (math.random() - 0.5) * 6)
+
+			if targetModel and targetRoot and targetModel.Parent ~= planetsFolder then
+				local didTap, killed = applyDamageToNode(player, state, targetModel, targetRoot, tapDmg, droneDrill)
+				if not killed and targetRoot:GetAttribute("Available") == true then
+					attachModel = targetModel
+					attachRoot = targetRoot
+					local surfaceDir = (aimPos - targetRoot.Position)
+					local dirUnit = (surfaceDir.Magnitude > 0.2) and surfaceDir.Unit or -aimDir
+					local halfExtent = math.min(targetRoot.Size.X, targetRoot.Size.Y, targetRoot.Size.Z) * 0.52
+					local jitter = Vector3.new((math.random() - 0.5) * 4.2, (math.random() - 0.5) * 3.8, (math.random() - 0.5) * 4.2)
+					local worldStick = targetRoot.Position + dirUnit * halfExtent + jitter
+					localOff = targetRoot.CFrame:PointToObjectSpace(worldStick)
+					worldPos = worldStick
+				end
+			end
+
+			table.insert(state.StickyBombs, {
+				BombId = bombId,
+				TargetModel = attachModel,
+				TargetRoot = attachRoot,
+				LocalOffset = localOff,
+				WorldPos = worldPos,
+				Damage = bombDmg,
+				BlastRadius = blastRadius,
+				Color = dStats.BeamColor,
+				PlacedAt = now,
+				DrillPower = droneDrill,
+			})
+
+			StickyBombFXEvent:FireAllClients("Attach", player.UserId, {
+				BombId = bombId,
+				TargetModel = attachModel,
+				TargetRoot = attachRoot,
+				LocalOffset = localOff,
+				WorldPos = worldPos,
+				Color = dStats.BeamColor,
+				Scale = scale,
+				DroneUid = firingDrone.Uid,
+				ShotIndex = shotIdx,
+			})
+		end
+
+		syncStateToClient(player)
+		return
+	end
+
+	-- ------------------------------------------------------------------------
+	-- STYLE B: MULTI-BULLET SPREAD SHOT (Hits multiple asteroids in 3D cone!)
+	-- ------------------------------------------------------------------------
+	if style == "SpreadPellet" then
+		local numPellets = math.max(3, dStats.ProjectilesPerShot or 5)
+		local spreadRad = math.rad(dStats.SpreadDeg or 18)
+		local pelletRawDmg = math.max(1, dStats.Damage * dmgMult)
+
+		local baseCF = CFrame.lookAt(Vector3.zero, aimDir)
+		local candidateNodes = findAvailableNodesInRadius(pPos, maxRange + 25, nil)
+		local hitCountsByModel: { [Model]: { Root: BasePart, Count: number, HitPos: Vector3 } } = {}
+		local pelletEndpoints: { Vector3 } = {}
+
+		for pIdx = 1, numPellets do
+			local yawOff = ((pIdx - (numPellets + 1) * 0.5) / math.max(1, (numPellets - 1) * 0.5)) * (spreadRad * 0.5)
+				+ (math.random() - 0.5) * (spreadRad * 0.16)
+			local pitchOff = (math.random() - 0.5) * (spreadRad * 0.35)
+			local pelletDir = (baseCF * CFrame.Angles(pitchOff, yawOff, 0)).LookVector
+			local rayEnd = pPos + pelletDir * maxRange
+
+			local closestModel: Model? = nil
+			local closestRoot: BasePart? = nil
+			local closestDistAlong = math.huge
+			local hitPt = rayEnd
+
+			for _, item in ipairs(candidateNodes) do
+				local center = item.Root.Position
+				local toCenter = center - pPos
+				local proj = toCenter:Dot(pelletDir)
+				if proj > 0 and proj <= maxRange then
+					local perpDist = distPointToSegment(center, pPos, rayEnd)
+					local hitRadius = math.max(11, item.Root.Size.Magnitude * 0.36)
+					if perpDist <= hitRadius and proj < closestDistAlong then
+						closestDistAlong = proj
+						closestModel = item.Model
+						closestRoot = item.Root
+						hitPt = pPos + pelletDir * math.max(4, proj - hitRadius * 0.4)
+					end
+				end
+			end
+
+			table.insert(pelletEndpoints, hitPt)
+			if closestModel and closestRoot then
+				if not hitCountsByModel[closestModel] then
+					hitCountsByModel[closestModel] = { Root = closestRoot, Count = 1, HitPos = hitPt }
+				else
+					hitCountsByModel[closestModel].Count += 1
+				end
+			end
+		end
+
+		local primaryHitModel: Model? = nil
+		local primaryDmg = 0
+		local primaryDestroyed = false
+		local primaryHitPos = pelletEndpoints[1] or clampedAimPos
+
+		for hitModel, info in pairs(hitCountsByModel) do
+			local dealt, destroyed = applyDamageToNode(player, state, hitModel, info.Root, pelletRawDmg * info.Count, droneDrill)
+			if dealt > primaryDmg then
+				primaryHitModel = hitModel
+				primaryDmg = dealt
+				primaryDestroyed = destroyed
+				primaryHitPos = info.HitPos
+			end
+		end
+
+		DroneBeamFXEvent:FireAllClients(player.UserId, primaryHitModel, primaryDmg, primaryDestroyed, primaryHitPos, {
+			Style = "SpreadPellet",
+			DroneUid = firingDrone.Uid,
+			BeamColor = dStats.BeamColor,
+			PelletHits = pelletEndpoints,
+		})
+		return
+	end
+
+	-- ------------------------------------------------------------------------
+	-- STYLE C: STANDARD / RAPID BOLT / HEAVY CANNON / LONG-RANGE SNIPER
+	-- ------------------------------------------------------------------------
+	if not (targetModel and targetRoot) then
+		return
+	end
+
+	local hitPos = (typeof(aimPosArg) == "Vector3") and aimPosArg or targetRoot.Position
+	local shotCount = (style == "SniperBeam" and (dStats.ProjectilesPerShot or 1) > 1) and dStats.ProjectilesPerShot or 1
+	local rawPerDrone = math.max(1, dStats.Damage * dmgMult * shotCount)
+
+	if targetModel.Parent == planetsFolder then
+		local pvpDmg = math.max(1, math.floor(rawPerDrone + 0.5))
+		DroneBeamFXEvent:FireAllClients(player.UserId, targetModel, pvpDmg, false, hitPos, {
+			Style = style,
+			DroneUid = firingDrone.Uid,
+			BeamColor = dStats.BeamColor,
+			BlastRadius = dStats.BlastRadius,
+		})
+		if not state.Rates.InHubSanctuary and math.random() <= 0.30 then
+			local siphonOre = math.max(1, math.floor(droneDrill * 0.8))
+			state.Resources.Minerals += siphonOre
+			syncStateToClient(player)
+		end
+		return
+	end
+
+	local dmg, destroyed = applyDamageToNode(player, state, targetModel, targetRoot, rawPerDrone, droneDrill)
+
+	-- Heavy Cannon AoE Splash Damage
+	if style == "HeavySlug" and (dStats.BlastRadius or 0) > 0 then
+		local splashNodes = findAvailableNodesInRadius(targetRoot.Position, dStats.BlastRadius, targetModel)
+		for _, item in ipairs(splashNodes) do
+			applyDamageToNode(player, state, item.Model, item.Root, rawPerDrone * 0.45, droneDrill)
+		end
+	end
+
+	DroneBeamFXEvent:FireAllClients(player.UserId, targetModel, dmg, destroyed, hitPos, {
+		Style = style,
+		DroneUid = firingDrone.Uid,
+		BeamColor = dStats.BeamColor,
+		BlastRadius = dStats.BlastRadius,
+		BurstCount = shotCount,
+	})
+end)
+
+-- H2D. Detonate All Planted Sticky Bombs at Once ([R] or HUD Detonate Button)
+DetonateStickyBombsEvent.OnServerEvent:Connect(function(player: Player)
+	local state = playerStates[player]
+	if not state or not state.HasCompletedSetup then
+		return
+	end
+	if #state.StickyBombs == 0 then
+		return
+	end
+
+	local bombs = state.StickyBombs
+	state.StickyBombs = {}
+
+	local bombCount = #bombs
+	local comboMult = 1.0 + math.min(1.20, (bombCount - 1) * 0.08)
+	local blastResults = {}
+	local totalAllDamage = 0
+
+	for _, b in ipairs(bombs) do
+		local blastPos = b.WorldPos
+		if b.TargetRoot and b.TargetRoot.Parent and b.TargetRoot:GetAttribute("Available") == true then
+			blastPos = b.TargetRoot.CFrame:PointToWorldSpace(b.LocalOffset)
+		end
+
+		local bombDamage = 0
+		-- Always hit the attached asteroid directly first if still alive
+		if b.TargetModel and b.TargetRoot and b.TargetRoot.Parent and b.TargetRoot:GetAttribute("Available") == true then
+			local dealt = applyDamageToNode(player, state, b.TargetModel, b.TargetRoot, b.Damage * comboMult, b.DrillPower)
+			bombDamage += dealt
+		end
+
+		-- AoE Splash across nearby asteroids within BlastRadius
+		local nearby = findAvailableNodesInRadius(blastPos, b.BlastRadius, b.TargetModel)
+		for _, item in ipairs(nearby) do
+			local falloff = math.clamp(1.0 - (item.Dist / math.max(1, b.BlastRadius)) * 0.4, 0.55, 1.0)
+			local dealt = applyDamageToNode(player, state, item.Model, item.Root, b.Damage * comboMult * falloff, b.DrillPower)
+			bombDamage += dealt
+		end
+
+		totalAllDamage += bombDamage
+		table.insert(blastResults, {
+			Pos = blastPos,
+			Radius = b.BlastRadius,
+			Color = b.Color,
+			Damage = bombDamage,
+		})
+	end
+
+	StickyBombFXEvent:FireAllClients("DetonateAll", player.UserId, blastResults)
+	syncStateToClient(player)
+
+	if bombCount >= 2 then
+		NotificationEvent:FireClient(
+			player,
+			string.format(
+				"💥 DETONATED %d STICKY BOMBS! (%s Total Blast DMG • %.1fx Combo)",
+				bombCount,
+				PlanetConfig.FormatNumber(totalAllDamage),
+				comboMult
+			),
+			Color3.fromRGB(255, 125, 45)
+		)
+	end
+end)
+
+local function clearAllPlayerBombs(player: Player, state: PlayerState)
+	if #state.StickyBombs > 0 then
+		state.StickyBombs = {}
+		StickyBombFXEvent:FireAllClients("ClearPlayer", player.UserId, nil)
+	end
+end
+
+-- H2E. Exclusive Developer Admin Console Handler (Only Fintanfire & pizqwe + Creator/Studio)
+AdminCommandEvent.OnServerEvent:Connect(function(player: Player, cmd: string, arg1: any, arg2: any)
+	if not PlanetConfig.IsAdminPlayer(player) then
+		return
+	end
+	local state = playerStates[player]
+	if not state or not state.HasCompletedSetup or type(cmd) ~= "string" then
+		return
+	end
+
+	local toastMsg = ""
+	if cmd == "SetClass" and type(arg1) == "string" then
+		local cDef = PlanetConfig.Companions[arg1]
+		if not cDef then
+			return
+		end
+		if arg1 ~= "StickyBomber" then
+			clearAllPlayerBombs(player, state)
+		end
+		local updated = false
+		for _, d in ipairs(state.Companions) do
+			if d.Uid == "Drone_PathMain" then
+				d.Id = arg1
+				d.Equipped = true
+				updated = true
+				break
+			end
+		end
+		if not updated then
+			for _, d in ipairs(state.Companions) do
+				if d.Equipped then
+					d.Id = arg1
+					updated = true
+					break
+				end
+			end
+		end
+		if not updated then
+			table.insert(state.Companions, 1, {
+				Uid = "Drone_PathMain",
+				Id = arg1,
+				Level = 1,
+				IsGolden = false,
+				Equipped = true,
+			})
+		end
+		state.DronePathClassId = arg1
+		toastMsg = "Switched main drone to " .. cDef.Name
+	elseif cmd == "AddBasicDrone" then
+		if #state.Companions < 50 then
+			nextCompanionUid += 1
+			table.insert(state.Companions, {
+				Uid = "Drone_" .. tostring(nextCompanionUid),
+				Id = "BasicDrone",
+				Level = 1,
+				IsGolden = false,
+				Equipped = (getEquippedCount(state) < state.MaxEquippedDrones),
+			})
+			toastMsg = "Added Lv.1 Basic Drone!"
+		else
+			toastMsg = "Hangar full (50/50)"
+		end
+	elseif cmd == "EquipAll5Paths" then
+		clearAllPlayerBombs(player, state)
+		local order = PlanetConfig.FirstPathDroneOrder or { "RapidPulse", "HeavyCannon", "LongRangeScout", "SpreadShot", "StickyBomber" }
+		local newFleet: { CompanionInstance } = {}
+		for idx, cId in ipairs(order) do
+			local uid = (idx == 1) and "Drone_PathMain" or ("Drone_AdminPath_" .. tostring(idx))
+			table.insert(newFleet, {
+				Uid = uid,
+				Id = cId,
+				Level = 1,
+				IsGolden = false,
+				Equipped = true,
+			})
+		end
+		state.Companions = newFleet
+		state.DronePathClassId = order[1] or "RapidPulse"
+		toastMsg = "Equipped all 5 First-Path Drones!"
+	elseif cmd == "ResetBasicFleet" then
+		clearAllPlayerBombs(player, state)
+		state.Companions = {
+			{
+				Uid = "Drone_PathMain",
+				Id = "BasicDrone",
+				Level = 1,
+				IsGolden = false,
+				Equipped = true,
+			},
+		}
+		state.DronePathClassId = "BasicDrone"
+		toastMsg = "Reset fleet to 1 Basic Drone"
+	elseif cmd == "SetLevel" then
+		local lvl = math.clamp(math.floor(tonumber(arg1) or 5), 1, 999)
+		state.Level = lvl
+		state.XP = 0
+		state.XPToNextLevel = PlanetConfig.GetXPForLevel(lvl)
+		state.UpgradePoints = math.max(state.UpgradePoints or 0, (lvl - 1) * 3)
+		toastMsg = string.format("Set Player Level -> Lv.%d", lvl)
+	elseif cmd == "AddLevels" then
+		local delta = math.clamp(math.floor(tonumber(arg1) or 5), 1, 100)
+		state.Level = math.clamp((state.Level or 1) + delta, 1, 999)
+		state.XP = 0
+		state.XPToNextLevel = PlanetConfig.GetXPForLevel(state.Level)
+		state.UpgradePoints = (state.UpgradePoints or 0) + delta * 3
+		toastMsg = string.format("+%d Levels -> Now Lv.%d", delta, state.Level)
+	elseif cmd == "ResetAllLv1" then
+		clearAllPlayerBombs(player, state)
+		state.Level = 1
+		state.XP = 0
+		state.XPToNextLevel = PlanetConfig.GetXPForLevel(1)
+		state.UpgradePoints = 0
+		for k, _ in pairs(state.PlanetUpgrades) do
+			state.PlanetUpgrades[k] = 0
+		end
+		state.Companions = {
+			{
+				Uid = "Drone_PathMain",
+				Id = "BasicDrone",
+				Level = 1,
+				IsGolden = false,
+				Equipped = true,
+			},
+		}
+		state.DronePathClassId = "BasicDrone"
+		toastMsg = "Reset to Lv.1 + Starter Basic Drone"
+	elseif cmd == "AddUpgradePoints" then
+		local addPts = math.clamp(math.floor(tonumber(arg1) or 10), 1, 1000)
+		state.UpgradePoints = (state.UpgradePoints or 0) + addPts
+		toastMsg = string.format("+%d [Q] Upgrade Points", addPts)
+	elseif cmd == "BoostCombatStats" then
+		state.PlanetUpgrades.DroneAttackDamage = 15
+		state.PlanetUpgrades.DroneReloadSpeed = 10
+		toastMsg = "Set ATK Lv.15 & Reload Lv.10"
+	elseif cmd == "ResetCombatStats" then
+		state.PlanetUpgrades.DroneAttackDamage = 0
+		state.PlanetUpgrades.DroneReloadSpeed = 0
+		toastMsg = "Reset [Q] ATK & Reload to Lv.0"
+	elseif cmd == "LevelUpDrones" then
+		local addLv = math.clamp(math.floor(tonumber(arg1) or 5), 1, 25)
+		for _, d in ipairs(state.Companions) do
+			if d.Equipped then
+				d.Level = math.clamp((d.Level or 1) + addLv, 1, PlanetConfig.MaxDroneLevel)
+			end
+		end
+		toastMsg = string.format("Leveled up equipped drones +%d", addLv)
+	elseif cmd == "GiveResources" then
+		state.Resources.Minerals += 10000
+		state.Gems += 5000
+		toastMsg = "+10,000 Minerals & +5,000 Gems"
+	elseif cmd == "SpawnTestAsteroids" then
+		local dir = (typeof(arg1) == "Vector3" and arg1.Magnitude > 0.01) and arg1.Unit or Vector3.new(0, 0, -1)
+		local spawned = SpaceWorldBuilder.SpawnAdminTestAsteroids(state.PlanetPosition, dir)
+		toastMsg = string.format("Spawned %d Test Asteroids ahead (Close/Mid/Far 520s)!", spawned)
+	elseif cmd == "UnlockAllStations" then
+		for _, st in ipairs(PlanetConfig.SpaceStations) do
+			state.UnlockedStations[st.Id] = true
+		end
+		toastMsg = "Unlocked all Deep-Space Stations!"
+	else
+		return
+	end
+
+	syncStateToClient(player)
+	NotificationEvent:FireClient(player, "🛠️ [ADMIN] " .. toastMsg, Color3.fromRGB(255, 215, 65))
 end)
 
 -- H3. Buy Timed Booster with Star Gems
