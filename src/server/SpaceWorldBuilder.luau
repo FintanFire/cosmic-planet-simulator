@@ -1028,14 +1028,14 @@ end
 -- ============================================================================
 local CHUNK_SIZE = 550
 local COLLECTIBLE_COLORS: { [string]: Color3 } = {
-	Minerals = Color3.fromRGB(255, 165, 65),
-	Biomass = Color3.fromRGB(85, 235, 135),
-	Energy = Color3.fromRGB(65, 215, 255),
-	Tech = Color3.fromRGB(195, 115, 255),
-	StarGems = Color3.fromRGB(56, 235, 255),
-	PopulationPod = Color3.fromRGB(125, 235, 195),
-	SupernovaChest = Color3.fromRGB(255, 215, 65),
-	SpaceEnemy = Color3.fromRGB(255, 75, 95),
+	Aluminum = Color3.fromRGB(190, 202, 218),
+	Iron = Color3.fromRGB(185, 118, 82),
+	Copper = Color3.fromRGB(232, 132, 68),
+	Silver = Color3.fromRGB(220, 234, 250),
+	Gold = Color3.fromRGB(255, 205, 45),
+	Platinum = Color3.fromRGB(115, 235, 255),
+	Titanium = Color3.fromRGB(190, 115, 255),
+	Diamond = Color3.fromRGB(85, 255, 225),
 }
 
 local CHUNK_STAR_COLORS = {
@@ -1069,7 +1069,7 @@ end
 
 local function attachNodeAttributes(colModel: Model, resType: string, zoneDef: any, rng: Random)
 	local matDef = (PlanetConfig.MaterialNodes and PlanetConfig.MaterialNodes[resType])
-		or PlanetConfig.MaterialNodes.Minerals
+		or PlanetConfig.MaterialNodes.Iron
 	local hpMult = matDef.HPMult or 1.0
 	local drillMult = matDef.DrillReqMult or 1.0
 	local valMult = matDef.ValueMult or 1.0
@@ -1077,13 +1077,16 @@ local function attachNodeAttributes(colModel: Model, resType: string, zoneDef: a
 	local baseHP = zoneDef.BaseHP or 35
 	local maxHP = math.max(15, math.floor(baseHP * hpMult * rng:NextNumber(0.92, 1.12) + 0.5))
 	local reqDrill = math.max(1, math.floor((zoneDef.ReqDrill or 1) * drillMult + 0.5))
-	local nodeTitle = (resType == "SpaceEnemy") and (zoneDef.EnemyName or "Rogue Pirate Drone")
-		or ((zoneDef.NodeNames and (zoneDef.NodeNames :: any)[resType]) or matDef.BaseTitle or "Space Asteroid")
+	local nodeTitle = matDef.BaseTitle or (resType .. " Asteroid")
+	local xpMult = math.max(1, math.pow(zoneDef.YieldMultiplier or 1, 0.55))
+	local xpReward = math.max(5, math.floor((matDef.BaseXP or 20) * xpMult + 0.5))
 
 	colModel:SetAttribute("IsSpaceCollectible", true)
+	colModel:SetAttribute("NodeType", resType)
 	colModel:SetAttribute("ResourceType", resType)
 	colModel:SetAttribute("NodeTitle", nodeTitle)
 	colModel:SetAttribute("ZoneTier", zoneDef.Tier)
+	colModel:SetAttribute("XPReward", xpReward)
 	colModel:SetAttribute("MaxHP", maxHP)
 	colModel:SetAttribute("HP", maxHP)
 	colModel:SetAttribute("ReqDrill", reqDrill)
@@ -1092,9 +1095,11 @@ local function attachNodeAttributes(colModel: Model, resType: string, zoneDef: a
 	local rootPart = colModel.PrimaryPart
 	if rootPart then
 		rootPart:SetAttribute("IsSpaceCollectible", true)
+		rootPart:SetAttribute("NodeType", resType)
 		rootPart:SetAttribute("ResourceType", resType)
 		rootPart:SetAttribute("NodeTitle", nodeTitle)
 		rootPart:SetAttribute("ZoneTier", zoneDef.Tier)
+		rootPart:SetAttribute("XPReward", xpReward)
 		rootPart:SetAttribute("MaxHP", maxHP)
 		rootPart:SetAttribute("HP", maxHP)
 		rootPart:SetAttribute("ReqDrill", reqDrill)
@@ -1104,6 +1109,75 @@ local function attachNodeAttributes(colModel: Model, resType: string, zoneDef: a
 		rootPart:SetAttribute("GemMin", math.max(1, math.floor(zoneDef.GemRange[1] * (matDef.GemMult or 1.0))))
 		rootPart:SetAttribute("GemMax", math.max(2, math.floor(zoneDef.GemRange[2] * (matDef.GemMult or 1.0))))
 		rootPart:SetAttribute("Available", true)
+	end
+end
+
+local function pickMineralTypeForZone(zoneTier: number, rng: Random): string
+	local roll = rng:NextInteger(1, 100)
+	if zoneTier <= 1 then
+		if roll <= 34 then
+			return "Aluminum"
+		elseif roll <= 66 then
+			return "Iron"
+		elseif roll <= 86 then
+			return "Copper"
+		elseif roll <= 95 then
+			return "Silver"
+		else
+			return "Gold"
+		end
+	elseif zoneTier == 2 then
+		if roll <= 18 then
+			return "Aluminum"
+		elseif roll <= 44 then
+			return "Iron"
+		elseif roll <= 70 then
+			return "Copper"
+		elseif roll <= 88 then
+			return "Silver"
+		elseif roll <= 97 then
+			return "Gold"
+		else
+			return "Platinum"
+		end
+	elseif zoneTier == 3 then
+		if roll <= 20 then
+			return "Iron"
+		elseif roll <= 45 then
+			return "Copper"
+		elseif roll <= 72 then
+			return "Silver"
+		elseif roll <= 90 then
+			return "Gold"
+		elseif roll <= 97 then
+			return "Platinum"
+		else
+			return "Titanium"
+		end
+	elseif zoneTier == 4 then
+		if roll <= 18 then
+			return "Copper"
+		elseif roll <= 42 then
+			return "Silver"
+		elseif roll <= 70 then
+			return "Gold"
+		elseif roll <= 90 then
+			return "Platinum"
+		else
+			return "Titanium"
+		end
+	else
+		if roll <= 15 then
+			return "Silver"
+		elseif roll <= 38 then
+			return "Gold"
+		elseif roll <= 65 then
+			return "Platinum"
+		elseif roll <= 88 then
+			return "Titanium"
+		else
+			return "Diamond"
+		end
 	end
 end
 
@@ -1123,18 +1197,18 @@ local function spawnProceduralChunk(cx: number, cy: number, cz: number)
 
 	local chunkOrigin = Vector3.new(cx * CHUNK_SIZE, cy * 320, cz * CHUNK_SIZE)
 
-	-- Special Starter Ring in the central chunk (0, 0, 0) so players starting with 0 resources
-	-- immediately have Titanium Ore & Solar Flux asteroids right outside the Hub spawn!
+	-- Special Starter Ring in the central chunk (0, 0, 0) with Aluminum, Iron, Copper & Gold asteroids!
 	if cx == 0 and cy == 0 and cz == 0 then
 		local z1 = PlanetConfig.DeepSpaceZones[1]
-		local starterTypes = { "Minerals", "Minerals", "Energy", "Minerals", "Biomass", "Minerals", "StarGems", "Energy", "SpaceEnemy", "Minerals" }
+		local starterTypes = { "Aluminum", "Iron", "Aluminum", "Iron", "Copper", "Iron", "Gold", "Aluminum", "Copper", "Iron" }
 		for idx, sType in ipairs(starterTypes) do
 			local angle = (idx / #starterTypes) * math.pi * 2 + 0.35
 			local rDist = 250 + (idx % 3) * 45
 			local sPos = Vector3.new(math.cos(angle) * rDist, 32 + ((idx % 2 == 0) and 18 or -12), math.sin(angle) * rDist)
 			if not isTooCloseToHubOrStation(sPos) then
 				local baseCol = COLLECTIBLE_COLORS[sType] or z1.ThemeColor
-				local nodeTitle = (z1.NodeNames and (z1.NodeNames :: any)[sType]) or "Starter Asteroid"
+				local matDef = PlanetConfig.MaterialNodes[sType] or PlanetConfig.MaterialNodes.Iron
+				local nodeTitle = matDef.BaseTitle or (sType .. " Asteroid")
 				local colModel = PlanetGenerator.BuildSpaceCollectibleModel(sType, sPos, nodeTitle, baseCol, 1)
 				attachNodeAttributes(colModel, sType, z1, rng)
 				colModel.Parent = chunkModel
@@ -1142,7 +1216,7 @@ local function spawnProceduralChunk(cx: number, cy: number, cz: number)
 		end
 	end
 
-	-- Spawn 6 to 8 distance-tiered asteroids, geodes, relics, vaults & hostile rogue enemies per chunk
+	-- Spawn 6 to 8 mineral element asteroids per chunk scaled to zone distance
 	local itemCount = rng:NextInteger(6, 8)
 	for _ = 1, itemCount do
 		local pos = chunkOrigin + Vector3.new(
@@ -1155,28 +1229,9 @@ local function spawnProceduralChunk(cx: number, cy: number, cz: number)
 			local dist = pos.Magnitude
 			local zoneDef = PlanetConfig.GetZoneForDistance(dist)
 
-			local roll = rng:NextInteger(1, 100)
-			local resType = "Minerals"
-			if roll <= 28 then
-				resType = "Minerals"
-			elseif roll <= 46 then
-				resType = "Energy"
-			elseif roll <= 62 then
-				resType = "Biomass"
-			elseif roll <= 74 then
-				resType = "Tech"
-			elseif roll <= 85 then
-				resType = "StarGems"
-			elseif roll <= 92 then
-				resType = "SpaceEnemy"
-			elseif roll <= 96 then
-				resType = "PopulationPod"
-			else
-				resType = "SupernovaChest"
-			end
-
-			local nodeTitle = (resType == "SpaceEnemy") and (zoneDef.EnemyName or "Rogue Pirate Drone")
-				or ((zoneDef.NodeNames and (zoneDef.NodeNames :: any)[resType]) or "Cosmic Asteroid")
+			local resType = pickMineralTypeForZone(zoneDef.Tier, rng)
+			local matDef = PlanetConfig.MaterialNodes[resType] or PlanetConfig.MaterialNodes.Iron
+			local nodeTitle = matDef.BaseTitle or (resType .. " Asteroid")
 			local baseCol = COLLECTIBLE_COLORS[resType] or zoneDef.ThemeColor
 
 			local colModel = PlanetGenerator.BuildSpaceCollectibleModel(

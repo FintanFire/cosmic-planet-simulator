@@ -398,30 +398,8 @@ function PlanetGenerator.BuildSpeciesCharacterModel(speciesId: string, scale: nu
 end
 
 -- ============================================================================
--- 2. HIGH-DETAIL SPACE COLLECTIBLE & ENEMY MODELS (With Sleek Sci-Fi HP Tag!)
+-- 2. HIGH-DETAIL MINERAL ELEMENT ASTEROID MODELS (With Sleek Sci-Fi XP + HP Tag!)
 -- ============================================================================
-local COLLECTIBLE_ICONS: { [string]: string } = {
-	Minerals = "◆",
-	Biomass = "❖",
-	Energy = "⚡",
-	Tech = "⬢",
-	StarGems = "💎",
-	PopulationPod = "🛸",
-	SupernovaChest = "★",
-	SpaceEnemy = "⚔",
-}
-
-local COLLECTIBLE_SHORT: { [string]: string } = {
-	Minerals = "ORE",
-	Biomass = "BIO",
-	Energy = "FLUX",
-	Tech = "TECH",
-	StarGems = "GEMS",
-	PopulationPod = "ARK",
-	SupernovaChest = "VAULT",
-	SpaceEnemy = "HOSTILE",
-}
-
 function PlanetGenerator.BuildSpaceCollectibleModel(
 	collectibleType: string,
 	pos: Vector3,
@@ -431,13 +409,16 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 ): Model
 	local tier = math.clamp(zoneTier or 1, 1, 6)
 	local zDef = PlanetConfig.DeepSpaceZones[tier] or PlanetConfig.DeepSpaceZones[1]
-	local s = zDef.ScaleMod or 1.0
-	local zoneRockMat = resolveMaterial(zDef.RockMat, Enum.Material.Rock)
-	local zoneAccentMat = resolveMaterial(zDef.AccentMat, Enum.Material.Limestone)
-	local zTheme = zDef.ThemeColor or accentColor
+	local matNode = (PlanetConfig.MaterialNodes and PlanetConfig.MaterialNodes[collectibleType])
+		or PlanetConfig.MaterialNodes.Iron
+	local s = (zDef.ScaleMod or 1.0) * math.clamp(0.92 + (matNode.HPMult or 1.0) * 0.08, 0.9, 1.45)
+	local zoneRockMat = resolveMaterial(matNode.RockMaterial or zDef.RockMat, Enum.Material.Rock)
+	local veinMat = resolveMaterial(matNode.VeinMaterial or zDef.AccentMat, Enum.Material.Slate)
+	local nodeColor = matNode.Color or accentColor or zDef.ThemeColor
 
 	local model = Instance.new("Model")
-	model.Name = string.format("SpaceCollectible_T%d_%s", tier, collectibleType)
+	model.Name = string.format("SpaceAsteroid_T%d_%s", tier, collectibleType)
+	model:SetAttribute("NodeType", collectibleType)
 	pcall(function()
 		model.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
 	end)
@@ -446,237 +427,66 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 	local core = createPart({
 		Name = "CollectibleRoot",
 		Shape = Enum.PartType.Ball,
-		Size = Vector3.new(16 * s, 16 * s, 16 * s),
+		Size = Vector3.new(18 * s, 14.5 * s, 16.5 * s),
 		CFrame = originCF,
-		Color = Color3.fromRGB(92, 88, 98):Lerp(zTheme, 0.22),
+		Color = Color3.fromRGB(78, 76, 82):Lerp(nodeColor, 0.28),
 		Material = zoneRockMat,
 		Parent = model,
 	})
 	model.PrimaryPart = core
 
-	if collectibleType == "Minerals" then
-		core.Material = zoneRockMat
-		core.Color = Color3.fromRGB(96, 90, 84):Lerp(zTheme, 0.28)
-		core.Size = Vector3.new(19 * s, 15 * s, 17 * s)
-		for b = 1, 3 do
-			local a = (b / 3) * math.pi * 2
-			createPart({
-				Name = "RockBoulder_" .. b,
-				Shape = Enum.PartType.Ball,
-				Size = Vector3.new(13 * s, 11 * s, 14 * s),
-				CFrame = originCF * CFrame.new(math.cos(a) * 6 * s, -2 * s, math.sin(a) * 6 * s),
-				Color = Color3.fromRGB(72, 70, 78):Lerp(zTheme, 0.18),
-				Material = (tier >= 4) and Enum.Material.Basalt or Enum.Material.Slate,
-				Parent = model,
-			})
-		end
-		local spikeCount = 4 + math.min(tier, 4)
-		for c = 1, spikeCount do
-			local a = (c / spikeCount) * math.pi * 2
-			createWedge({
-				Name = "OreSpike_" .. c,
-				Size = Vector3.new(4.2 * s, (12 + tier * 1.4) * s, 4.2 * s),
-				CFrame = originCF * CFrame.Angles(math.rad(25), a, math.rad(-18)) * CFrame.new(0, 7 * s, 0),
-				Color = accentColor:Lerp(zTheme, 0.45),
-				Material = (c <= math.ceil(tier * 0.4)) and Enum.Material.Neon or zoneAccentMat,
-				Parent = model,
-			})
-		end
-	elseif collectibleType == "Biomass" then
-		core.Material = (tier == 3) and Enum.Material.Glacier or Enum.Material.Ground
-		core.Color = Color3.fromRGB(92, 68, 48):Lerp(zTheme, 0.20)
+	-- Clustered asteroid rock boulders around the core
+	for b = 1, 4 do
+		local a = (b / 4) * math.pi * 2 + 0.4
+		local yOff = ((b % 2 == 0) and 2.5 or -2.2) * s
 		createPart({
-			Name = "MossCrust",
+			Name = "AsteroidBoulder_" .. b,
 			Shape = Enum.PartType.Ball,
-			Size = Vector3.new(17.5 * s, 13 * s, 17.5 * s),
-			CFrame = originCF * CFrame.new(0, 2.5 * s, 0),
-			Color = Color3.fromRGB(52, 145, 68):Lerp(zTheme, 0.30),
-			Material = Enum.Material.LeafyGrass,
+			Size = Vector3.new(12.5 * s, 10.5 * s, 13.0 * s),
+			CFrame = originCF * CFrame.new(math.cos(a) * 6.5 * s, yOff, math.sin(a) * 6.5 * s),
+			Color = Color3.fromRGB(64, 62, 70):Lerp(nodeColor, 0.22),
+			Material = Enum.Material.Slate,
 			Parent = model,
 		})
-		for m = 1, 4 do
-			local a = (m / 4) * math.pi * 2
-			local stemCF = originCF * CFrame.Angles(math.rad(32), a, 0) * CFrame.new(0, 9 * s, 0)
-			createPart({
-				Name = "TreeTrunk_" .. m,
-				Shape = Enum.PartType.Cylinder,
-				Size = Vector3.new(7 * s, 2.8 * s, 2.8 * s),
-				CFrame = stemCF * CFrame.Angles(0, 0, math.rad(90)),
-				Color = Color3.fromRGB(110, 75, 45),
-				Material = Enum.Material.Wood,
-				Parent = model,
-			})
-			createPart({
-				Name = "TreeCanopy_" .. m,
-				Shape = Enum.PartType.Ball,
-				Size = Vector3.new(8.5 * s, 5.5 * s, 8.5 * s),
-				CFrame = stemCF * CFrame.new(0, 4 * s, 0),
-				Color = Color3.fromRGB(48, 168, 75):Lerp(zTheme, 0.35),
-				Material = Enum.Material.Grass,
-				Parent = model,
-			})
-		end
-	elseif collectibleType == "Energy" then
-		core.Material = Enum.Material.Neon
-		core.Color = accentColor:Lerp(zTheme, 0.4)
-		core.Size = Vector3.new(13 * s, 13 * s, 13 * s)
-		local ringCount = (tier >= 4) and 3 or 2
-		for r = 1, ringCount do
-			local rTilt = CFrame.Angles(math.rad(r * 35), math.rad(r * 20), math.rad(r == 1 and 25 or -25))
-			for seg = 1, 10 do
-				local a = (seg / 10) * math.pi * 2
-				createPart({
-					Name = string.format("ContainmentRing_%d_%d", r, seg),
-					Size = Vector3.new(2.4 * s, 2.0 * s, 8.5 * s),
-					CFrame = originCF * rTilt * CFrame.Angles(0, a, 0) * CFrame.new(13 * s, 0, 0),
-					Color = Color3.fromRGB(52, 56, 66),
-					Material = Enum.Material.Basalt,
-					Parent = model,
-				})
-			end
-		end
-	elseif collectibleType == "Tech" then
-		core.Shape = Enum.PartType.Cylinder
-		core.Size = Vector3.new(14 * s, 10 * s, 10 * s)
-		core.CFrame = originCF * CFrame.Angles(0, 0, math.rad(90))
-		core.Material = Enum.Material.Concrete
-		core.Color = Color3.fromRGB(145, 152, 165):Lerp(zTheme, 0.22)
-		for _, side in ipairs({ -1, 1 }) do
-			createPart({
-				Name = "SolarWing_" .. side,
-				Size = Vector3.new(22 * s, 1.0 * s, 9 * s),
-				CFrame = originCF * CFrame.new(side * 16 * s, 0, 0) * CFrame.Angles(math.rad(20), 0, 0),
-				Color = Color3.fromRGB(38, 58, 92):Lerp(zTheme, 0.25),
-				Material = Enum.Material.Slate,
-				Parent = model,
-			})
-			createPart({
-				Name = "SolarFrame_" .. side,
-				Size = Vector3.new(22.4 * s, 1.2 * s, 1.2 * s),
-				CFrame = originCF * CFrame.new(side * 16 * s, 0, 0) * CFrame.Angles(math.rad(20), 0, 0),
-				Color = Color3.fromRGB(95, 102, 115),
-				Material = Enum.Material.DiamondPlate,
-				Parent = model,
-			})
-		end
-		createPart({
-			Name = "RadioDish",
-			Shape = Enum.PartType.Ball,
-			Size = Vector3.new(8 * s, 3 * s, 8 * s),
-			CFrame = originCF * CFrame.new(0, 8 * s, 0),
-			Color = Color3.fromRGB(175, 182, 195),
-			Material = Enum.Material.Concrete,
-			Parent = model,
-		})
-	elseif collectibleType == "StarGems" then
-		core.Shape = Enum.PartType.Ball
-		core.Size = Vector3.new(17 * s, 12 * s, 17 * s)
-		core.Color = Color3.fromRGB(48, 52, 66)
-		core.Material = Enum.Material.Basalt
-		local gemCol = zTheme
-		for g = 1, 6 do
-			local a = (g / 6) * math.pi * 2
-			local h = (14 + (g % 3) * 4) * s
-			local w = (3.8 + (g % 2) * 1.2) * s
-			local tilt = CFrame.Angles(math.rad(18 + (g % 3) * 8), a, math.rad(-14))
-			createWedge({
-				Name = "GemCrystalShaft_" .. g,
-				Size = Vector3.new(w, h, w),
-				CFrame = originCF * tilt * CFrame.new(0, h * 0.45, 0),
-				Color = gemCol,
-				Material = (g <= 2) and Enum.Material.Neon or Enum.Material.Glacier,
-				Parent = model,
-			})
-		end
-	elseif collectibleType == "PopulationPod" then
-		core.Shape = Enum.PartType.Cylinder
-		core.Size = Vector3.new(18 * s, 11 * s, 11 * s)
-		core.Color = Color3.fromRGB(185, 192, 205)
-		core.Material = Enum.Material.Concrete
-		createPart({
-			Name = "PodNosecone",
-			Shape = Enum.PartType.Ball,
-			Size = Vector3.new(11 * s, 11 * s, 11 * s),
-			CFrame = originCF * CFrame.new(8 * s, 0, 0),
-			Color = Color3.fromRGB(55, 62, 74),
-			Material = Enum.Material.Basalt,
-			Parent = model,
-		})
-		createPart({
-			Name = "PodThruster",
-			Shape = Enum.PartType.Cylinder,
-			Size = Vector3.new(3.5 * s, 7.5 * s, 7.5 * s),
-			CFrame = originCF * CFrame.new(-10 * s, 0, 0),
-			Color = Color3.fromRGB(255, 145, 35),
-			Material = Enum.Material.Neon,
-			Parent = model,
-		})
-	elseif collectibleType == "SupernovaChest" then
-		core.Shape = Enum.PartType.Block
-		core.Size = Vector3.new(18 * s, 13 * s, 14 * s)
-		core.Color = Color3.fromRGB(175, 142, 82):Lerp(zTheme, 0.35)
-		core.Material = Enum.Material.Sandstone
-		createPart({
-			Name = "VaultLid",
-			Shape = Enum.PartType.Cylinder,
-			Size = Vector3.new(18.4 * s, 13.5 * s, 13.5 * s),
-			CFrame = originCF * CFrame.new(0, 5.5 * s, 0),
-			Color = Color3.fromRGB(72, 66, 78),
-			Material = Enum.Material.Basalt,
-			Parent = model,
-		})
-		createPart({
-			Name = "VaultCoreSeam",
-			Size = Vector3.new(18.6 * s, 1.4 * s, 14.4 * s),
-			CFrame = originCF * CFrame.new(0, 2 * s, 0),
-			Color = zTheme,
-			Material = Enum.Material.Neon,
-			Parent = model,
-		})
-	elseif collectibleType == "SpaceEnemy" then
-		-- Hostile Rogue Void Warship / Pirate Sentinel
-		core.Shape = Enum.PartType.Block
-		core.Size = Vector3.new(16 * s, 7 * s, 22 * s)
-		core.Color = Color3.fromRGB(36, 38, 48)
-		core.Material = Enum.Material.Basalt
-		-- Bridge / Command Core
-		createPart({
-			Name = "EnemyCommandCore",
-			Shape = Enum.PartType.Ball,
-			Size = Vector3.new(9 * s, 6 * s, 10 * s),
-			CFrame = originCF * CFrame.new(0, 3.5 * s, -2 * s),
-			Color = Color3.fromRGB(255, 55, 85),
-			Material = Enum.Material.Neon,
-			Parent = model,
-		})
-		-- Swept Armored Wings & Twin Plasma Cannons
-		for _, side in ipairs({ -1, 1 }) do
-			createWedge({
-				Name = "EnemyWing_" .. side,
-				Size = Vector3.new(3.5 * s, 16 * s, 18 * s),
-				CFrame = originCF * CFrame.new(side * 13 * s, 0, 2 * s) * CFrame.Angles(0, 0, math.rad(side * 82)),
-				Color = Color3.fromRGB(58, 62, 76),
-				Material = Enum.Material.Slate,
-				Parent = model,
-			})
-			createPart({
-				Name = "EnemyCannon_" .. side,
-				Shape = Enum.PartType.Cylinder,
-				Size = Vector3.new(14 * s, 2.2 * s, 2.2 * s),
-				CFrame = originCF * CFrame.new(side * 9 * s, -1.5 * s, -10 * s) * CFrame.Angles(0, math.rad(90), 0),
-				Color = Color3.fromRGB(255, 75, 95),
-				Material = Enum.Material.Neon,
-				Parent = model,
-			})
-		end
 	end
 
-	-- Sleek High-Tech Sci-Fi Telemetry Callout with Live HP Bar
+	-- Protruding Mineral Element Veins & Ore Chunks across the asteroid
+	local veinCount = (collectibleType == "Gold" or collectibleType == "Platinum" or collectibleType == "Titanium" or collectibleType == "Diamond") and 7 or 5
+	for v = 1, veinCount do
+		local a = (v / veinCount) * math.pi * 2
+		local tilt = CFrame.Angles(math.rad(22 + (v % 3) * 14), a, math.rad(-18))
+		local h = (9.5 + (v % 3) * 2.5) * s
+		local w = (3.8 + (v % 2) * 1.1) * s
+		createWedge({
+			Name = "MineralVein_" .. v,
+			Size = Vector3.new(w, h, w),
+			CFrame = originCF * tilt * CFrame.new(0, 6.2 * s, 0),
+			Color = nodeColor,
+			Material = veinMat,
+			Parent = model,
+		})
+	end
+
+	-- Equatorial metallic ore chunks embedded into the asteroid sides
+	for c = 1, 4 do
+		local ca = (c / 4) * math.pi * 2 + 0.8
+		createPart({
+			Name = "OreChunk_" .. c,
+			Shape = Enum.PartType.Block,
+			Size = Vector3.new(5.2 * s, 4.4 * s, 5.2 * s),
+			CFrame = originCF * CFrame.Angles(math.rad(c * 28), ca, math.rad(c * 17)) * CFrame.new(8.2 * s, 0, 0),
+			Color = nodeColor,
+			Material = veinMat,
+			Parent = model,
+		})
+	end
+
+	-- Sleek High-Tech Sci-Fi Telemetry Callout with Element Name, XP Reward & Live HP Bar
 	local bb = Instance.new("BillboardGui")
 	bb.Name = "CollectibleIconGui"
-	bb.Size = UDim2.new(0, 116, 0, 34)
+	bb.Size = UDim2.new(0, 156, 0, 38)
 	bb.StudsOffset = Vector3.new(0, 15.5 * s, 0)
-	bb.MaxDistance = (collectibleType == "SpaceEnemy" or collectibleType == "SupernovaChest") and 340 or 230
+	bb.MaxDistance = (matNode.BaseXP and matNode.BaseXP >= 150) and 340 or 230
 	bb.AlwaysOnTop = false
 	bb.LightInfluence = 0
 	bb.Adornee = core
@@ -694,7 +504,7 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 	corner.Parent = badge
 
 	local stroke = Instance.new("UIStroke")
-	stroke.Color = (collectibleType == "SpaceEnemy") and Color3.fromRGB(255, 75, 95) or zTheme
+	stroke.Color = nodeColor
 	stroke.Thickness = 1.2
 	stroke.Transparency = 0.25
 	stroke.Parent = badge
@@ -702,32 +512,33 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 	local leftAccent = Instance.new("Frame")
 	leftAccent.Size = UDim2.new(0, 3, 1, -8)
 	leftAccent.Position = UDim2.new(0, 4, 0, 4)
-	leftAccent.BackgroundColor3 = (collectibleType == "SpaceEnemy") and Color3.fromRGB(255, 75, 95) or accentColor
+	leftAccent.BackgroundColor3 = nodeColor
 	leftAccent.BorderSizePixel = 0
 	leftAccent.Parent = badge
 	local lac = Instance.new("UICorner")
 	lac.CornerRadius = UDim.new(1, 0)
 	lac.Parent = leftAccent
 
-	local shortTag = COLLECTIBLE_SHORT[collectibleType] or "NODE"
-	local iconChar = COLLECTIBLE_ICONS[collectibleType] or "◆"
+	local symbolStr = matNode.Symbol or "◆"
+	local shortTag = matNode.ShortTag or string.upper(collectibleType)
 
 	local titleLbl = Instance.new("TextLabel")
 	titleLbl.Name = "IconLabel"
-	titleLbl.Size = UDim2.new(1, -14, 0, 15)
+	titleLbl.Size = UDim2.new(1, -14, 0, 16)
 	titleLbl.Position = UDim2.new(0, 11, 0, 2)
 	titleLbl.BackgroundTransparency = 1
-	titleLbl.Text = string.format("%s T%d %s", iconChar, tier, shortTag)
+	titleLbl.Text = string.format("%s %s • +%s XP", symbolStr, shortTag, PlanetConfig.FormatNumber(matNode.BaseXP or 20))
 	titleLbl.TextColor3 = Color3.fromRGB(238, 244, 255)
 	titleLbl.Font = Enum.Font.GothamBold
-	titleLbl.TextSize = 11
+	titleLbl.TextSize = 10
+	titleLbl.TextTruncate = Enum.TextTruncate.AtEnd
 	titleLbl.TextXAlignment = Enum.TextXAlignment.Left
 	titleLbl.Parent = badge
 
 	local hpBg = Instance.new("Frame")
 	hpBg.Name = "HPBarBg"
-	hpBg.Size = UDim2.new(1, -16, 0, 9)
-	hpBg.Position = UDim2.new(0, 11, 0, 19)
+	hpBg.Size = UDim2.new(1, -16, 0, 10)
+	hpBg.Position = UDim2.new(0, 11, 0, 21)
 	hpBg.BackgroundColor3 = Color3.fromRGB(22, 28, 44)
 	hpBg.BorderSizePixel = 0
 	hpBg.Parent = badge
@@ -738,7 +549,7 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 	local hpFill = Instance.new("Frame")
 	hpFill.Name = "HPFill"
 	hpFill.Size = UDim2.fromScale(1, 1)
-	hpFill.BackgroundColor3 = (collectibleType == "SpaceEnemy") and Color3.fromRGB(255, 75, 95) or accentColor
+	hpFill.BackgroundColor3 = nodeColor
 	hpFill.BorderSizePixel = 0
 	hpFill.Parent = hpBg
 	local hpfc = Instance.new("UICorner")
@@ -755,7 +566,10 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 	hpText.TextSize = 8
 	hpText.Parent = hpBg
 
-	local function refreshHPBar()
+	local function refreshHeaderAndHP()
+		local xpVal = tonumber(model:GetAttribute("XPReward")) or matNode.BaseXP or 20
+		titleLbl.Text = string.format("%s %s • +%s XP", symbolStr, shortTag, PlanetConfig.FormatNumber(xpVal))
+
 		local curHP = tonumber(model:GetAttribute("HP"))
 		local maxHP = tonumber(model:GetAttribute("MaxHP"))
 		if curHP and maxHP and maxHP > 0 then
@@ -767,9 +581,10 @@ function PlanetGenerator.BuildSpaceCollectibleModel(
 			end
 		end
 	end
-	model:GetAttributeChangedSignal("HP"):Connect(refreshHPBar)
-	model:GetAttributeChangedSignal("MaxHP"):Connect(refreshHPBar)
-	task.defer(refreshHPBar)
+	model:GetAttributeChangedSignal("HP"):Connect(refreshHeaderAndHP)
+	model:GetAttributeChangedSignal("MaxHP"):Connect(refreshHeaderAndHP)
+	model:GetAttributeChangedSignal("XPReward"):Connect(refreshHeaderAndHP)
+	task.defer(refreshHeaderAndHP)
 
 	return model
 end

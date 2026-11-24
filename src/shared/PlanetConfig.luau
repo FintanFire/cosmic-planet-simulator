@@ -32,6 +32,11 @@ function PlanetConfig.FormatTime(seconds: number): string
 	return string.format("%02d:%02d", m, rem)
 end
 
+function PlanetConfig.GetXPForLevel(level: number): number
+	local lv = math.max(1, math.floor(tonumber(level) or 1))
+	return math.floor(45 * math.pow(1.35, lv - 1) + 0.5)
+end
+
 export type PlanetTypeData = {
 	Id: string,
 	Name: string,
@@ -444,105 +449,140 @@ PlanetConfig.ResourceMeta = {
 	},
 }
 
--- Material node archetypes: higher-value materials have significantly more HP!
+-- Mineral element asteroid archetypes ordered by value: more valuable elements give more XP, Minerals & Gems!
+PlanetConfig.MineralOrder = { "Aluminum", "Iron", "Copper", "Silver", "Gold", "Platinum", "Titanium", "Diamond" }
+
 PlanetConfig.MaterialNodes = {
-	Minerals = {
-		Type = "Minerals",
-		BaseTitle = "Titanium Ore Asteroid",
-		HPMult = 1.0,
+	Aluminum = {
+		Type = "Aluminum",
+		Label = "Aluminum Asteroid",
+		BaseTitle = "Aluminum Asteroid",
+		ShortTag = "ALUMINUM",
+		Symbol = "Al",
+		HPMult = 0.85,
 		DrillReqMult = 1.0,
-		ValueMult = 1.0,
-		PrimaryResource = "Minerals",
-		SecondaryResource = "Energy",
-		GemChance = 0.35,
-		GemMult = 0.5,
-		Color = Color3.fromRGB(255, 165, 65),
+		ValueMult = 0.85,
+		BaseXP = 15,
+		GemChance = 0.50,
+		GemMult = 0.60,
+		Color = Color3.fromRGB(190, 202, 218),
+		RockMaterial = "Slate",
+		VeinMaterial = "Concrete",
 	},
-	Biomass = {
-		Type = "Biomass",
-		BaseTitle = "Bio-Spore Comet",
-		HPMult = 1.25,
+	Iron = {
+		Type = "Iron",
+		Label = "Iron Asteroid",
+		BaseTitle = "Iron Asteroid",
+		ShortTag = "IRON",
+		Symbol = "Fe",
+		HPMult = 1.00,
 		DrillReqMult = 1.0,
-		ValueMult = 1.2,
-		PrimaryResource = "Biomass",
-		SecondaryResource = "Minerals",
-		GemChance = 0.40,
-		GemMult = 0.6,
-		Color = Color3.fromRGB(85, 235, 135),
+		ValueMult = 1.00,
+		BaseXP = 25,
+		GemChance = 0.60,
+		GemMult = 0.80,
+		Color = Color3.fromRGB(185, 118, 82),
+		RockMaterial = "Rock",
+		VeinMaterial = "Slate",
 	},
-	Energy = {
-		Type = "Energy",
-		BaseTitle = "Plasma Flux Geode",
-		HPMult = 1.65,
-		DrillReqMult = 1.15,
-		ValueMult = 1.5,
-		PrimaryResource = "Energy",
-		SecondaryResource = "Minerals",
-		GemChance = 0.55,
-		GemMult = 0.85,
-		Color = Color3.fromRGB(65, 215, 255),
-	},
-	Tech = {
-		Type = "Tech",
-		BaseTitle = "Quantum Relic Derelict",
-		HPMult = 2.25,
-		DrillReqMult = 1.35,
-		ValueMult = 2.0,
-		PrimaryResource = "Tech",
-		SecondaryResource = "Energy",
+	Copper = {
+		Type = "Copper",
+		Label = "Copper Asteroid",
+		BaseTitle = "Copper Asteroid",
+		ShortTag = "COPPER",
+		Symbol = "Cu",
+		HPMult = 1.35,
+		DrillReqMult = 1.0,
+		ValueMult = 1.40,
+		BaseXP = 45,
 		GemChance = 0.70,
-		GemMult = 1.15,
-		Color = Color3.fromRGB(195, 115, 255),
+		GemMult = 1.00,
+		Color = Color3.fromRGB(232, 132, 68),
+		RockMaterial = "Sandstone",
+		VeinMaterial = "Limestone",
 	},
-	StarGems = {
-		Type = "StarGems",
-		BaseTitle = "Star-Gem Crystal Vein",
-		HPMult = 2.80,
-		DrillReqMult = 1.50,
-		ValueMult = 2.5,
-		PrimaryResource = "Gems",
-		SecondaryResource = "Minerals",
-		GemChance = 1.0,
-		GemMult = 1.85,
-		Color = Color3.fromRGB(56, 235, 255),
+	Silver = {
+		Type = "Silver",
+		Label = "Silver Asteroid",
+		BaseTitle = "Silver Asteroid",
+		ShortTag = "SILVER",
+		Symbol = "Ag",
+		HPMult = 1.85,
+		DrillReqMult = 1.10,
+		ValueMult = 2.00,
+		BaseXP = 80,
+		GemChance = 0.80,
+		GemMult = 1.40,
+		Color = Color3.fromRGB(220, 234, 250),
+		RockMaterial = "Slate",
+		VeinMaterial = "Glacier",
 	},
-	PopulationPod = {
-		Type = "PopulationPod",
-		BaseTitle = "Colonial Stasis Ark",
-		HPMult = 1.40,
-		DrillReqMult = 1.0,
-		ValueMult = 1.6,
-		PrimaryResource = "Biomass",
-		SecondaryResource = "Tech",
-		GemChance = 0.65,
-		GemMult = 0.9,
-		Color = Color3.fromRGB(125, 235, 195),
+	Gold = {
+		Type = "Gold",
+		Label = "Gold Asteroid",
+		BaseTitle = "Gold Asteroid",
+		ShortTag = "GOLD",
+		Symbol = "Au",
+		HPMult = 2.60,
+		DrillReqMult = 1.25,
+		ValueMult = 3.20,
+		BaseXP = 150,
+		GemChance = 1.00,
+		GemMult = 2.20,
+		Color = Color3.fromRGB(255, 205, 45),
+		RockMaterial = "Sandstone",
+		VeinMaterial = "Neon",
 	},
-	SupernovaChest = {
-		Type = "SupernovaChest",
-		BaseTitle = "Ancient Supernova Vault",
-		HPMult = 4.50,
-		DrillReqMult = 1.80,
-		ValueMult = 4.2,
-		PrimaryResource = "All",
-		SecondaryResource = "Gems",
-		GemChance = 1.0,
-		GemMult = 3.20,
-		Color = Color3.fromRGB(255, 215, 65),
-	},
-	SpaceEnemy = {
-		Type = "SpaceEnemy",
-		BaseTitle = "Rogue Void Sentinel",
-		HPMult = 3.40,
+	Platinum = {
+		Type = "Platinum",
+		Label = "Platinum Asteroid",
+		BaseTitle = "Platinum Asteroid",
+		ShortTag = "PLATINUM",
+		Symbol = "Pt",
+		HPMult = 3.80,
 		DrillReqMult = 1.40,
-		ValueMult = 3.5,
-		PrimaryResource = "All",
-		SecondaryResource = "Gems",
-		GemChance = 1.0,
-		GemMult = 2.60,
-		Color = Color3.fromRGB(255, 75, 95),
+		ValueMult = 5.00,
+		BaseXP = 300,
+		GemChance = 1.00,
+		GemMult = 3.50,
+		Color = Color3.fromRGB(115, 235, 255),
+		RockMaterial = "Slate",
+		VeinMaterial = "Neon",
+	},
+	Titanium = {
+		Type = "Titanium",
+		Label = "Titanium Asteroid",
+		BaseTitle = "Titanium Asteroid",
+		ShortTag = "TITANIUM",
+		Symbol = "Ti",
+		HPMult = 5.50,
+		DrillReqMult = 1.60,
+		ValueMult = 8.00,
+		BaseXP = 600,
+		GemChance = 1.00,
+		GemMult = 5.50,
+		Color = Color3.fromRGB(190, 115, 255),
+		RockMaterial = "Basalt",
+		VeinMaterial = "Neon",
+	},
+	Diamond = {
+		Type = "Diamond",
+		Label = "Diamond Asteroid",
+		BaseTitle = "Diamond Asteroid",
+		ShortTag = "DIAMOND",
+		Symbol = "◆",
+		HPMult = 8.00,
+		DrillReqMult = 1.90,
+		ValueMult = 14.00,
+		BaseXP = 1250,
+		GemChance = 1.00,
+		GemMult = 10.00,
+		Color = Color3.fromRGB(85, 255, 225),
+		RockMaterial = "Basalt",
+		VeinMaterial = "Glacier",
 	},
 }
+PlanetConfig.MaterialNodes.Minerals = PlanetConfig.MaterialNodes.Iron
 
 PlanetConfig.DeepSpaceZones = {
 	{
@@ -958,6 +998,22 @@ PlanetConfig.PlanetaryRanks = {
 -- ============================================================================
 PlanetConfig.PlanetUpgrades = {
 	{
+		Id = "DroneAttackDamage",
+		Name = "🛸 Drones' Attack Damage",
+		Description = "Supercharges all equipped Drones' weapon systems, boosting Drone Attack Damage by +30% per level!",
+		BaseCost = { Gems = 15 },
+		CostScale = 1.35,
+		MaxLevel = 100,
+	},
+	{
+		Id = "DroneReloadSpeed",
+		Name = "⚡ Drone Reload Speed",
+		Description = "Decreases the shooting cooldown for your Drones so they fire lasers much faster while holding Left-Click!",
+		BaseCost = { Points = 1 },
+		CostScale = 1.0,
+		MaxLevel = 100,
+	},
+	{
 		Id = "CoreDensity",
 		Name = "🪐 Planetary Core Mass & Size",
 		Description = "Expands your planet's diameter, boosts Planet Value Score, and increases passive 💎 Star Gem income!",
@@ -1036,14 +1092,11 @@ PlanetConfig.HubMachines = {
 -- ============================================================================
 -- SIMULATOR SYSTEM 4: ORBITAL DRONE FLEET, RARITIES, RESOURCE ROLLS & SLOTS
 -- ============================================================================
-PlanetConfig.BaseDroneSlots = 2
+PlanetConfig.BaseDroneSlots = 5
 PlanetConfig.MaxDroneLevel = 25
 
--- Expensive Gem upgrades for additional Drone Slots (Starts at 2 Slots!)
+-- Expensive Gem upgrades for additional Drone Slots (Starts at 5 Slots!)
 PlanetConfig.DroneSlotUpgrades = {
-	{ SlotNumber = 3, GemCost = 500, RobuxCost = 99, Title = "Drone Slot #3", Desc = "Equip up to 3 Orbital Drones simultaneously." },
-	{ SlotNumber = 4, GemCost = 2500, RobuxCost = 199, Title = "Drone Slot #4", Desc = "Equip up to 4 Orbital Drones simultaneously." },
-	{ SlotNumber = 5, GemCost = 12500, RobuxCost = 399, Title = "Drone Slot #5", Desc = "Equip up to 5 Orbital Drones simultaneously." },
 	{ SlotNumber = 6, GemCost = 65000, RobuxCost = 799, Title = "Drone Slot #6", Desc = "Equip up to 6 Orbital Drones simultaneously." },
 	{ SlotNumber = 7, GemCost = 325000, RobuxCost = 1299, Title = "Drone Slot #7", Desc = "Equip up to 7 Orbital Drones simultaneously." },
 	{ SlotNumber = 8, GemCost = 1500000, RobuxCost = 1999, Title = "Drone Slot #8", Desc = "Maximum Fleet Command: Equip 8 Orbital Drones!" },
@@ -1058,13 +1111,13 @@ PlanetConfig.DroneRarities = {
 	Mythic = { Order = 6, Name = "Mythic", Color = Color3.fromRGB(255, 65, 105), LevelCostMult = 15.0 },
 }
 
--- Rolling for Drones costs APPROPRIATE SPACE RESOURCES (NOT Gems!)
+-- Rolling for Drones costs mined Minerals (NOT Gems!)
 PlanetConfig.CompanionPods = {
 	{
 		Id = "LunarPod",
 		Name = "TIER 1 • SALVAGE ORE CORE",
 		Cost = { Minerals = 25 },
-		Description = "Fabricates starter mining & laser drones using raw Titanium Ore harvested from Zone 1 asteroids.",
+		Description = "Fabricates starter mining & laser drones using harvested asteroid Minerals.",
 		Color = Color3.fromRGB(95, 205, 255),
 		Pool = {
 			{ Id = "ScrapWelder", Weight = 52 },
@@ -1076,8 +1129,8 @@ PlanetConfig.CompanionPods = {
 	{
 		Id = "IndustrialPod",
 		Name = "TIER 2 • TECTONIC ALLOY CORE",
-		Cost = { Minerals = 180, Energy = 110, Biomass = 85 },
-		Description = "Forges industrial laser cutters and solar prism drones using refined Ore, Plasma Flux, and Bio-Spores.",
+		Cost = { Minerals = 350 },
+		Description = "Forges industrial laser cutters and solar prism drones using refined Minerals.",
 		Color = Color3.fromRGB(75, 235, 155),
 		Pool = {
 			{ Id = "BioScout", Weight = 42 },
@@ -1090,7 +1143,7 @@ PlanetConfig.CompanionPods = {
 	{
 		Id = "NebulaPod",
 		Name = "TIER 3 • CRYO-PLASMA FOUNDRY",
-		Cost = { Minerals = 1100, Energy = 950, Biomass = 700, Tech = 500 },
+		Cost = { Minerals = 2800 },
 		Description = "Synthesizes high-velocity military strikers and cryo-lances with a chance at Legendary Quantum Seraphs!",
 		Color = Color3.fromRGB(185, 105, 255),
 		Pool = {
@@ -1105,7 +1158,7 @@ PlanetConfig.CompanionPods = {
 	{
 		Id = "SingularityPod",
 		Name = "TIER 4 • OMNIVERSE SINGULARITY CORE",
-		Cost = { Minerals = 7500, Energy = 6800, Biomass = 5200, Tech = 6000 },
+		Cost = { Minerals = 22000 },
 		Description = "Apex foundry core capable of manifesting Legendary Chronos Dragons and Mythic Omniverse Seraphs!",
 		Color = Color3.fromRGB(255, 195, 55),
 		Pool = {
@@ -1321,17 +1374,9 @@ function PlanetConfig.GetDroneLevelUpCost(droneId: string, currentLevel: number)
 	local rMeta = PlanetConfig.DroneRarities[base.Rarity] or PlanetConfig.DroneRarities.Common
 	local lv = math.clamp(math.floor(tonumber(currentLevel) or 1), 1, PlanetConfig.MaxDroneLevel)
 	local scale = math.pow(1.36, lv - 1) * rMeta.LevelCostMult
-	local cost: { [string]: number } = {
-		Minerals = math.max(15, math.floor(20 * scale)),
-		Energy = math.max(10, math.floor(14 * scale)),
+	return {
+		Minerals = math.max(25, math.floor(32 * scale)),
 	}
-	if lv >= 4 or rMeta.Order >= 3 then
-		cost.Biomass = math.max(10, math.floor(12 * scale))
-	end
-	if lv >= 8 or rMeta.Order >= 4 then
-		cost.Tech = math.max(8, math.floor(10 * scale))
-	end
-	return cost
 end
 
 -- ============================================================================
@@ -1371,8 +1416,8 @@ PlanetConfig.Boosters = {
 }
 
 PlanetConfig.PlaytimeRewards = {
-	{ Id = 1, TimeReq = 60, Label = "1 Min Gift", RewardText = "+40 Ore & +25 Gems", Gems = 25, Resources = { Minerals = 40 } },
-	{ Id = 2, TimeReq = 180, Label = "3 Min Gift", RewardText = "+80 Flux & 5m Speed Boost", Gems = 60, Resources = { Energy = 80 }, BoosterId = "SpeedBoost", BoosterSecs = 300 },
+	{ Id = 1, TimeReq = 60, Label = "1 Min Gift", RewardText = "+40 Minerals & +25 Gems", Gems = 25, Resources = { Minerals = 40 } },
+	{ Id = 2, TimeReq = 180, Label = "3 Min Gift", RewardText = "+120 Minerals & 5m Speed Boost", Gems = 60, Resources = { Minerals = 120 }, BoosterId = "SpeedBoost", BoosterSecs = 300 },
 	{ Id = 3, TimeReq = 360, Label = "6 Min Gift", RewardText = "+180 Gems & 10m 2x Yields", Gems = 180, BoosterId = "YieldBoost", BoosterSecs = 600 },
 	{ Id = 4, TimeReq = 720, Label = "12 Min Gift", RewardText = "+400 Gems & 10m 2x Gems", Gems = 400, BoosterId = "GemBoost", BoosterSecs = 600 },
 	{ Id = 5, TimeReq = 1200, Label = "20 Min Gift", RewardText = "+850 Gems & 15m 2x Yields", Gems = 850, BoosterId = "YieldBoost", BoosterSecs = 900 },
@@ -1428,34 +1473,34 @@ PlanetConfig.Missions = {
 	{
 		Id = 1,
 		Title = "First Asteroid Harvest",
-		Description = "Fly near or click on Titanium Ore Asteroids in Zone 1 to drill and destroy 2 space nodes.",
+		Description = "Fly near or click on Mineral Asteroids (Aluminum, Iron, Copper, Gold) in Zone 1 to destroy 2 asteroids and earn XP!",
 		GoalType = "OrbsHarvested",
 		Target = 2,
-		Reward = { Gems = 15, Resources = { Minerals = 30, Energy = 15 } },
+		Reward = { Gems = 15, Resources = { Minerals = 45 } },
 	},
 	{
 		Id = 2,
 		Title = "Roll Your First Drone",
-		Description = "Visit the Orbital Drone Foundry on the East Hub Plaza (or click DRONES) and roll a Tier 1 Drone for 25 Ore.",
+		Description = "Visit the Orbital Drone Foundry on the East Hub Plaza (or click DRONES) and roll a Tier 1 Drone for 25 Minerals.",
 		GoalType = "DronesHatched",
 		Target = 1,
-		Reward = { Gems = 40, Resources = { Minerals = 60, Energy = 45 } },
+		Reward = { Gems = 40, Resources = { Minerals = 100 } },
 	},
 	{
 		Id = 3,
 		Title = "Level Up a Drone",
-		Description = "Open the DRONES menu, select an equipped drone, and Level It Up using harvested space resources.",
+		Description = "Open the DRONES menu, select an equipped drone, and Level It Up using harvested Minerals.",
 		GoalType = "DroneLevels",
 		Target = 1,
-		Reward = { Gems = 75, Resources = { Minerals = 120, Biomass = 80 } },
+		Reward = { Gems = 75, Resources = { Minerals = 200 } },
 	},
 	{
 		Id = 4,
 		Title = "First Planetary Upgrade",
-		Description = "Open UPGRADES on the left command dock and upgrade any Planet System to Level 1.",
+		Description = "Press [Q] to upgrade your Attack Damage or open SHOP to upgrade a Planet System to Level 1.",
 		GoalType = "TotalUpgrades",
 		Target = 1,
-		Reward = { Gems = 110, Resources = { Energy = 150, Tech = 90 } },
+		Reward = { Gems = 110, Resources = { Minerals = 250 } },
 	},
 	{
 		Id = 5,
@@ -1463,7 +1508,7 @@ PlanetConfig.Missions = {
 		Description = "Fly to Station 1 (-1,850 Z) or open STATIONS and spend 100 Gems to unlock the Belt Outpost Warp Gate.",
 		GoalType = "StationsUnlocked",
 		Target = 1,
-		Reward = { Gems = 220, Resources = { Minerals = 350, Energy = 250 } },
+		Reward = { Gems = 220, Resources = { Minerals = 600 } },
 	},
 	{
 		Id = 6,
